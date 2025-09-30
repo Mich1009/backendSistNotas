@@ -4,11 +4,11 @@ Modelos para el módulo de administrador
 from app.shared import (
     User, PasswordResetToken, RoleEnum,
     Carrera, Ciclo, Curso, Matricula,
-    Nota, HistorialNota
+    Nota, HistorialNota, Estudiante,
 )
 
 __all__ = [
     "User", "PasswordResetToken", "RoleEnum",
     "Carrera", "Ciclo", "Curso", "Matricula", 
-    "Nota", "HistorialNota"
+    "Nota", "HistorialNota", "Estudiante",
 ]
