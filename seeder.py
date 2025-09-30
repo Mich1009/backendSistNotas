@@ -4,13 +4,77 @@ Seeder para poblar la base de datos con usuarios de prueba
 Sistema de Notas Académico
 """
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 from datetime import datetime, date
 from app.database import SessionLocal, engine, Base
-from app.shared import User, RoleEnum, Carrera, Ciclo, Curso, Matricula, Nota, HistorialNota
+from app.shared.models import User, RoleEnum, Carrera, Ciclo, Curso, Matricula, Nota, HistorialNota
 from app.modules.auth.security import get_password_hash
 
-# Crear todas las tablas si no existen
-Base.metadata.create_all(bind=engine)
+def check_database_connection():
+    """Verifica si se puede conectar a la base de datos"""
+    try:
+        # Intentar crear una conexión simple
+        connection = engine.connect()
+        connection.close()
+        return True
+    except OperationalError as e:
+        print(f"❌ Error de conexión a la base de datos:")
+        print(f"   {str(e)}")
+        print("\n🔧 Posibles soluciones:")
+        print("   1. Verificar que PostgreSQL esté corriendo")
+        print("   2. Verificar las credenciales en el archivo .env")
+        print("   3. Verificar que la base de datos 'sistema_notas' exista")
+        print("   4. Verificar la configuración de red/puerto")
+        return False
+
+def create_database_structure():
+    """Crea la estructura de la base de datos"""
+    try:
+        print("🔄 Actualizando estructura de la base de datos...")
+        Base.metadata.create_all(bind=engine)
+        print("✅ Estructura de base de datos actualizada")
+        return True
+    except Exception as e:
+        print(f"❌ Error al crear la estructura de la base de datos: {e}")
+        return False
+
+def create_carrera_desarrollo_software():
+    """Crea la carrera 'Desarrollo de Software' si no existe"""
+    db: Session = SessionLocal()
+    
+    try:
+        # Verificar si la carrera ya existe
+        existing_carrera = db.query(Carrera).filter(
+            Carrera.nombre == "Desarrollo de Software"
+        ).first()
+        
+        if existing_carrera:
+            print("⚠️  Carrera 'Desarrollo de Software' ya existe")
+            return existing_carrera
+        
+        # Crear la carrera
+        carrera_data = {
+            "nombre": "Desarrollo de Software",
+            "codigo": "DS",
+            "descripcion": "Carrera técnica enfocada en el desarrollo de aplicaciones y sistemas de software",
+            "duracion_ciclos": 6,
+            "is_active": True
+        }
+        
+        new_carrera = Carrera(**carrera_data)
+        db.add(new_carrera)
+        db.commit()
+        db.refresh(new_carrera)
+        
+        print(f"✅ Carrera creada: {new_carrera.nombre} (Código: {new_carrera.codigo})")
+        return new_carrera
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error al crear carrera: {e}")
+        raise
+    finally:
+        db.close()
 
 def create_test_users():
     """Crea usuarios de prueba específicos según la imagen proporcionada"""
@@ -65,18 +129,37 @@ def create_test_users():
                 skipped_count += 1
                 continue
             
-            # Crear nuevo usuario
+            # Crear nuevo usuario con campos específicos por rol
             hashed_password = get_password_hash(user_data["password"])
-            new_user = User(
-                dni=user_data["dni"],
-                email=user_data["email"],
-                hashed_password=hashed_password,
-                first_name=user_data["first_name"],
-                last_name=user_data["last_name"],
-                phone=user_data["phone"],
-                role=user_data["role"],
-                is_active=True
-            )
+            
+            # Campos base para todos los usuarios
+            user_fields = {
+                "dni": user_data["dni"],
+                "email": user_data["email"],
+                "hashed_password": hashed_password,
+                "first_name": user_data["first_name"],
+                "last_name": user_data["last_name"],
+                "phone": user_data["phone"],
+                "role": user_data["role"],
+                "is_active": True
+            }
+            
+            # Agregar campos específicos según el rol
+            if user_data["role"] == RoleEnum.ESTUDIANTE:
+                user_fields.update({
+                    "fecha_nacimiento": date(2000, 1, 1),  # Fecha ejemplo
+                    "direccion": "Av. Ejemplo 123, Lima",
+                    "nombre_apoderado": "María López",
+                    "telefono_apoderado": "987654324"
+                })
+            elif user_data["role"] == RoleEnum.DOCENTE:
+                user_fields.update({
+                    "especialidad": "Ingeniería de Software",
+                    "grado_academico": "Magíster",
+                    "fecha_ingreso": date(2020, 3, 1)
+                })
+            
+            new_user = User(**user_fields)
             
             db.add(new_user)
             db.commit()
@@ -125,13 +208,23 @@ def display_credentials():
     print("   Documentación: http://localhost:9001/docs")
 
 if __name__ == "__main__":
-    print("🌱 SEEDER - Sistema de Notas Académico")
-    print("="*40)
+    print("🚀 Iniciando seeder del Sistema de Notas...")
     
-    try:
-        create_test_users()
-        display_credentials()
-        
-    except Exception as e:
-        print(f"\n❌ Error fatal: {str(e)}")
+    # Verificar conexión a la base de datos
+    if not check_database_connection():
+        print("\n❌ No se puede conectar a la base de datos. Seeder cancelado.")
         exit(1)
+    
+    # Crear estructura de la base de datos
+    if not create_database_structure():
+        print("\n❌ No se pudo crear la estructura de la base de datos. Seeder cancelado.")
+        exit(1)
+    
+    # Crear carrera 'Desarrollo de Software'
+    create_carrera_desarrollo_software()
+    
+    # Crear usuarios de prueba
+    create_test_users()
+    
+    # Mostrar credenciales
+    display_credentials()

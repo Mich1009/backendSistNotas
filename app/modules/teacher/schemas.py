@@ -18,21 +18,18 @@ class CursoDocenteCreate(CursoDocenteBase):
     ciclo_id: int
 
 class CursoDocenteUpdate(BaseModel):
-    nombre: Optional[str] = None
-    horario: Optional[str] = None
-    aula: Optional[str] = None
-    max_estudiantes: Optional[int] = Field(None, ge=5, le=50)
+    nombre: Optional[str] = Field(None, min_length=3, max_length=100)
 
-class CursoDocenteResponse(CursoDocenteBase):
+class CursoDocenteResponse(BaseModel):
     id: int
-    carrera_id: int
+    nombre: str
+    codigo: str
+    creditos: int
+    horas_semanales: int
     ciclo_id: int
     docente_id: int
     is_active: bool
     created_at: datetime
-    
-    # Información relacionada
-    carrera_nombre: Optional[str] = None
     ciclo_nombre: Optional[str] = None
     total_estudiantes: Optional[int] = None
     
@@ -43,8 +40,8 @@ class CursoDocenteResponse(CursoDocenteBase):
 class EstudianteEnCurso(BaseModel):
     id: int
     dni: str
-    nombres: str
-    apellidos: str
+    first_name: str
+    last_name: str
     email: str
     fecha_matricula: datetime
     

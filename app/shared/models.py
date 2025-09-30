@@ -23,6 +23,19 @@ class User(Base):
     last_name = Column(String(50), nullable=False)
     phone = Column(String(15), nullable=True)
     role = Column(Enum(RoleEnum), nullable=False)
+    
+    # Campos específicos para estudiantes
+    fecha_nacimiento = Column(Date, nullable=True)
+    direccion = Column(String(255), nullable=True)
+    nombre_apoderado = Column(String(100), nullable=True)
+    telefono_apoderado = Column(String(15), nullable=True)
+    
+    # Campos específicos para docentes
+    especialidad = Column(String(100), nullable=True)
+    grado_academico = Column(String(50), nullable=True)
+    fecha_ingreso = Column(Date, nullable=True)
+    
+    # Campos comunes
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -37,6 +50,10 @@ class User(Base):
     
     def __repr__(self):
         return f"<User(dni={self.dni}, email={self.email}, role={self.role})>"
+    
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}"
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
@@ -73,10 +90,11 @@ class Ciclo(Base):
     __tablename__ = "ciclos"
     
     id = Column(Integer, primary_key=True, index=True)
-    numero = Column(Integer, nullable=False)
-    carrera_id = Column(Integer, ForeignKey("carreras.id"), nullable=False)
-    nombre = Column(String(50), nullable=False)
+    nombre = Column(String(100), nullable=False)
     descripcion = Column(Text, nullable=True)
+    fecha_inicio = Column(Date, nullable=False)
+    fecha_fin = Column(Date, nullable=False)
+    carrera_id = Column(Integer, ForeignKey("carreras.id"), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -87,7 +105,7 @@ class Ciclo(Base):
     matriculas = relationship("Matricula", back_populates="ciclo")
     
     def __repr__(self):
-        return f"<Ciclo(numero={self.numero}, carrera={self.carrera.nombre if self.carrera else 'N/A'})>"
+        return f"<Ciclo(nombre={self.nombre}, carrera={self.carrera.nombre if self.carrera else 'N/A'})>"
 
 class Curso(Base):
     __tablename__ = "cursos"
@@ -95,12 +113,10 @@ class Curso(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
     codigo = Column(String(10), unique=True, nullable=False)
-    descripcion = Column(Text, nullable=True)
     creditos = Column(Integer, nullable=False)
-    horas_teoricas = Column(Integer, nullable=False)
-    horas_practicas = Column(Integer, nullable=False)
+    horas_semanales = Column(Integer, nullable=False)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
-    docente_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    docente_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

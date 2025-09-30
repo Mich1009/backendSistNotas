@@ -53,15 +53,10 @@ def get_teacher_dashboard(
             "codigo": curso.codigo,
             "creditos": curso.creditos,
             "horas_semanales": curso.horas_semanales,
-            "horario": curso.horario,
-            "aula": curso.aula,
-            "max_estudiantes": curso.max_estudiantes,
-            "carrera_id": curso.carrera_id,
             "ciclo_id": curso.ciclo_id,
             "docente_id": curso.docente_id,
             "is_active": curso.is_active,
             "created_at": curso.created_at,
-            "carrera_nombre": curso.carrera.nombre,
             "ciclo_nombre": curso.ciclo.nombre,
             "total_estudiantes": estudiantes_count
         }
@@ -96,10 +91,10 @@ def get_teacher_dashboard(
     for nota in actividad_reciente:
         actividad_data = {
             "tipo": "nota_actualizada",
-            "descripcion": f"Nota actualizada para {nota.estudiante.nombres} {nota.estudiante.apellidos} en {nota.curso.nombre}",
+            "descripcion": f"Nota actualizada para {nota.estudiante.first_name} {nota.estudiante.last_name} en {nota.curso.nombre}",
             "fecha": nota.updated_at or nota.created_at,
             "curso": nota.curso.nombre,
-            "estudiante": f"{nota.estudiante.nombres} {nota.estudiante.apellidos}"
+            "estudiante": f"{nota.estudiante.first_name} {nota.estudiante.last_name}"
         }
         actividad_response.append(actividad_data)
     
@@ -114,8 +109,8 @@ def get_teacher_dashboard(
     return {
         "docente_info": {
             "dni": current_user.dni,
-            "nombres": current_user.nombres,
-            "apellidos": current_user.apellidos,
+            "first_name": current_user.first_name,
+            "last_name": current_user.last_name,
             "email": current_user.email
         },
         "cursos_actuales": cursos_response,
@@ -159,15 +154,10 @@ def get_teacher_courses(
             "codigo": curso.codigo,
             "creditos": curso.creditos,
             "horas_semanales": curso.horas_semanales,
-            "horario": curso.horario,
-            "aula": curso.aula,
-            "max_estudiantes": curso.max_estudiantes,
-            "carrera_id": curso.carrera_id,
             "ciclo_id": curso.ciclo_id,
             "docente_id": curso.docente_id,
             "is_active": curso.is_active,
             "created_at": curso.created_at,
-            "carrera_nombre": curso.carrera.nombre,
             "ciclo_nombre": curso.ciclo.nombre,
             "total_estudiantes": estudiantes_count
         }
@@ -203,7 +193,7 @@ def get_course_students(
         Matricula.curso_id == curso_id,
         Matricula.is_active == True,
         User.role == RoleEnum.ESTUDIANTE
-    ).order_by(User.apellidos, User.nombres).all()
+    ).order_by(User.last_name, User.first_name).all()
     
     # Convertir a formato de respuesta
     estudiantes_response = []
@@ -211,8 +201,8 @@ def get_course_students(
         estudiante_data = {
             "id": user.id,
             "dni": user.dni,
-            "nombres": user.nombres,
-            "apellidos": user.apellidos,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
             "email": user.email,
             "fecha_matricula": fecha_matricula
         }
@@ -252,7 +242,7 @@ def get_course_students_with_grades(
         Matricula.curso_id == curso_id,
         Matricula.is_active == True,
         User.role == RoleEnum.ESTUDIANTE
-    ).order_by(User.apellidos, User.nombres).all()
+    ).order_by(User.last_name, User.first_name).all()
     
     # Convertir a formato de respuesta
     estudiantes_response = []
@@ -260,8 +250,8 @@ def get_course_students_with_grades(
         estudiante_data = {
             "id": user.id,
             "dni": user.dni,
-            "nombres": user.nombres,
-            "apellidos": user.apellidos,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
             "email": user.email,
             "fecha_matricula": fecha_matricula,
             "nota_1": nota.nota_1 if nota else None,
@@ -356,8 +346,8 @@ def create_grade(
         "created_at": nueva_nota.created_at,
         "updated_at": nueva_nota.updated_at,
         "estudiante_dni": estudiante.dni,
-        "estudiante_nombres": estudiante.nombres,
-        "estudiante_apellidos": estudiante.apellidos
+        "estudiante_first_name": estudiante.first_name,
+        "estudiante_last_name": estudiante.last_name
     }
 
 @router.put("/grades/{nota_id}", response_model=NotaDocenteResponse)
@@ -416,8 +406,8 @@ def update_grade(
         "created_at": nota.created_at,
         "updated_at": nota.updated_at,
         "estudiante_dni": estudiante.dni,
-        "estudiante_nombres": estudiante.nombres,
-        "estudiante_apellidos": estudiante.apellidos
+        "estudiante_first_name": estudiante.first_name,
+        "estudiante_last_name": estudiante.last_name
     }
 
 @router.put("/courses/{curso_id}", response_model=CursoDocenteResponse)
@@ -445,18 +435,11 @@ def update_course(
     # Actualizar campos permitidos
     if curso_data.nombre is not None:
         curso.nombre = curso_data.nombre
-    if curso_data.horario is not None:
-        curso.horario = curso_data.horario
-    if curso_data.aula is not None:
-        curso.aula = curso_data.aula
-    if curso_data.max_estudiantes is not None:
-        curso.max_estudiantes = curso_data.max_estudiantes
     
     db.commit()
     db.refresh(curso)
     
     # Obtener información adicional para la respuesta
-    carrera = db.query(Carrera).filter(Carrera.id == curso.carrera_id).first()
     ciclo = db.query(Ciclo).filter(Ciclo.id == curso.ciclo_id).first()
     
     estudiantes_count = db.query(Matricula).filter(
@@ -470,15 +453,10 @@ def update_course(
         "codigo": curso.codigo,
         "creditos": curso.creditos,
         "horas_semanales": curso.horas_semanales,
-        "horario": curso.horario,
-        "aula": curso.aula,
-        "max_estudiantes": curso.max_estudiantes,
-        "carrera_id": curso.carrera_id,
         "ciclo_id": curso.ciclo_id,
         "docente_id": curso.docente_id,
         "is_active": curso.is_active,
         "created_at": curso.created_at,
-        "carrera_nombre": carrera.nombre if carrera else None,
         "ciclo_nombre": ciclo.nombre if ciclo else None,
         "total_estudiantes": estudiantes_count
     }

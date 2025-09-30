@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+import json
 
 class Settings(BaseSettings):
     # Base de datos - PostgreSQL
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     
     # CORS - Se parseará automáticamente desde el .env
-    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: str = '["http://localhost:3000", "http://localhost:5173"]'
     
     # Email
     smtp_server: str = "smtp.gmail.com"
@@ -25,12 +26,18 @@ class Settings(BaseSettings):
     # General
     debug: bool = True
     
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parsea la lista de orígenes CORS desde string JSON"""
+        try:
+            if isinstance(self.cors_origins, str):
+                return json.loads(self.cors_origins)
+            return self.cors_origins
+        except (json.JSONDecodeError, TypeError):
+            return ["http://localhost:3000", "http://localhost:5173"]
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
-        # Permite que pydantic parsee automáticamente listas desde strings JSON
-        json_encoders = {
-            list: lambda v: v if isinstance(v, list) else eval(v) if isinstance(v, str) else v
-        }
 
 settings = Settings()
