@@ -21,12 +21,13 @@ class CarreraResponse(CarreraBase):
 # Schemas para Ciclo
 class CicloBase(BaseModel):
     nombre: str
+    descripcion: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
-    fecha_cierre_notas: datetime
 
 class CicloResponse(CicloBase):
     id: int
+    carrera_id: int
     is_active: bool
     created_at: datetime
     
@@ -65,10 +66,7 @@ class CursoEstudianteResponse(BaseModel):
     codigo: str
     creditos: int
     horas_semanales: int
-    horario: Optional[str] = None
-    aula: Optional[str] = None
     docente_nombre: str
-    carrera_nombre: str
     ciclo_nombre: str
     
     class Config:

@@ -43,10 +43,7 @@ def get_student_dashboard(
             "codigo": curso.codigo,
             "creditos": curso.creditos,
             "horas_semanales": curso.horas_semanales,
-            "horario": curso.horario,
-            "aula": curso.aula,
-            "docente_nombre": f"{curso.docente.nombres} {curso.docente.apellidos}",
-            "carrera_nombre": curso.carrera.nombre,
+            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}",
             "ciclo_nombre": curso.ciclo.nombre
         }
         cursos_response.append(curso_data)
@@ -65,7 +62,7 @@ def get_student_dashboard(
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
             "curso_codigo": nota.curso.codigo,
-            "docente_nombre": f"{nota.curso.docente.nombres} {nota.curso.docente.apellidos}",
+            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}",
             "nota_1": nota.nota_1,
             "nota_2": nota.nota_2,
             "nota_3": nota.nota_3,
@@ -110,8 +107,8 @@ def get_student_dashboard(
     return {
         "estudiante_info": {
             "dni": current_user.dni,
-            "nombres": current_user.nombres,
-            "apellidos": current_user.apellidos,
+            "first_name": current_user.first_name,
+            "last_name": current_user.last_name,
             "email": current_user.email
         },
         "cursos_actuales": cursos_response,
@@ -152,7 +149,7 @@ def get_student_courses(
             "horas_semanales": curso.horas_semanales,
             "horario": curso.horario,
             "aula": curso.aula,
-            "docente_nombre": f"{curso.docente.nombres} {curso.docente.apellidos}",
+            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}",
             "carrera_nombre": curso.carrera.nombre,
             "ciclo_nombre": curso.ciclo.nombre
         }
@@ -186,7 +183,7 @@ def get_student_grades(
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
             "curso_codigo": nota.curso.codigo,
-            "docente_nombre": f"{nota.curso.docente.nombres} {nota.curso.docente.apellidos}",
+            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}",
             "nota_1": nota.nota_1,
             "nota_2": nota.nota_2,
             "nota_3": nota.nota_3,
@@ -223,7 +220,7 @@ def get_student_grade_by_course(
         "id": nota.id,
         "curso_nombre": nota.curso.nombre,
         "curso_codigo": nota.curso.codigo,
-        "docente_nombre": f"{nota.curso.docente.nombres} {nota.curso.docente.apellidos}",
+        "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}",
         "nota_1": nota.nota_1,
         "nota_2": nota.nota_2,
         "nota_3": nota.nota_3,
@@ -279,26 +276,17 @@ def get_available_courses_for_enrollment(
     # Convertir a formato de respuesta
     cursos_response = []
     for curso in cursos_disponibles:
-        # Verificar cupos disponibles
-        matriculados_count = db.query(Matricula).filter(
-            Matricula.curso_id == curso.id,
-            Matricula.is_active == True
-        ).count()
-        
-        if matriculados_count < curso.max_estudiantes:
-            curso_data = {
-                "id": curso.id,
-                "nombre": curso.nombre,
-                "codigo": curso.codigo,
-                "creditos": curso.creditos,
-                "horas_semanales": curso.horas_semanales,
-                "horario": curso.horario,
-                "aula": curso.aula,
-                "docente_nombre": f"{curso.docente.nombres} {curso.docente.apellidos}",
-                "carrera_nombre": curso.carrera.nombre,
-                "ciclo_nombre": curso.ciclo.nombre
-            }
-            cursos_response.append(curso_data)
+        # Verificar cupos disponibles (eliminado - no hay max_estudiantes)
+        curso_data = {
+            "id": curso.id,
+            "nombre": curso.nombre,
+            "codigo": curso.codigo,
+            "creditos": curso.creditos,
+            "horas_semanales": curso.horas_semanales,
+            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}",
+            "ciclo_nombre": curso.ciclo.nombre
+        }
+        cursos_response.append(curso_data)
     
     return cursos_response
 
@@ -348,16 +336,7 @@ def enroll_in_courses(
             errores.append(f"Ya está matriculado en el curso {curso.nombre}")
             continue
         
-        # Verificar cupos disponibles
-        matriculados_count = db.query(Matricula).filter(
-            Matricula.curso_id == curso_id,
-            Matricula.is_active == True
-        ).count()
-        
-        if matriculados_count >= curso.max_estudiantes:
-            errores.append(f"No hay cupos disponibles en el curso {curso.nombre}")
-            continue
-        
+        # Verificar cupos disponibles (eliminado - no hay límite de estudiantes)
         # Crear matrícula
         nueva_matricula = Matricula(
             estudiante_id=current_user.id,
