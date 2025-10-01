@@ -49,8 +49,9 @@ def get_ciclos(
             Curso.is_active == True
         ).count()
         
-        ciclo.total_matriculas = db.query(Matricula).join(Curso).filter(
-            Curso.ciclo_id == ciclo.id,
+        # Corregir la consulta de matrículas - ahora están directamente relacionadas con ciclos
+        ciclo.total_matriculas = db.query(Matricula).filter(
+            Matricula.ciclo_id == ciclo.id,
             Matricula.estado == "activa"
         ).count()
     
@@ -187,8 +188,7 @@ def get_cursos(
     if ciclo_id:
         query = query.filter(Curso.ciclo_id == ciclo_id)
     
-    if docente_id:
-        query = query.filter(Curso.docente_id == docente_id)
+    # Removed docente_id filter since Curso model no longer has docente_id
     
     if is_active is not None:
         query = query.filter(Curso.is_active == is_active)
@@ -213,12 +213,14 @@ def get_cursos(
             curso.carrera_nombre = curso.ciclo.carrera.nombre
         if curso.ciclo:
             curso.ciclo_nombre = curso.ciclo.nombre
+        
+        # Agregar nombre del docente si está asignado
         if curso.docente:
             curso.docente_nombre = f"{curso.docente.first_name} {curso.docente.last_name}"
         
-        # Contar matriculados
+        # Contar matriculados por ciclo (ya que las matrículas están relacionadas con ciclos, no cursos)
         curso.total_matriculados = db.query(Matricula).filter(
-            Matricula.curso_id == curso.id,
+            Matricula.ciclo_id == curso.ciclo_id,
             Matricula.estado == "activa"
         ).count()
     
@@ -238,8 +240,7 @@ def get_curso(
     """Obtener un curso específico por ID"""
     
     curso = db.query(Curso).options(
-        joinedload(Curso.ciclo).joinedload(Ciclo.carrera),
-        joinedload(Curso.docente)
+        joinedload(Curso.ciclo).joinedload(Ciclo.carrera)
     ).filter(Curso.id == curso_id).first()
     
     if not curso:
@@ -251,11 +252,12 @@ def get_curso(
     # Agregar información adicional
     if curso.ciclo:
         curso.ciclo_nombre = curso.ciclo.nombre
-    if curso.docente:
-        curso.docente_nombre = f"{curso.docente.first_name} {curso.docente.last_name}"
     
+    # Removed docente references since Curso model no longer has docente relationship
+    
+    # Fix matricula count - matriculas are now directly related to ciclos, not cursos
     curso.total_matriculados = db.query(Matricula).filter(
-        Matricula.curso_id == curso.id,
+        Matricula.ciclo_id == curso.ciclo_id,
         Matricula.is_active == True
     ).count()
     
@@ -269,30 +271,27 @@ def create_curso(
     """Crear un nuevo curso"""
     
     # Verificar que no exista un curso con el mismo código
-    existing_curso = db.query(Curso).filter(
-        Curso.codigo == curso_data.codigo
-    ).first()
+    existing_curso = db.query(Curso).filter(Curso.codigo == curso_data.codigo).first()
     
     if existing_curso:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un curso con ese código"
+            detail="Ya existe un curso con este código"
         )
     
-    # Verificar que el docente existe y es docente
-    if curso_data.docente_id:
-        docente = db.query(User).filter(
-            User.id == curso_data.docente_id,
-            User.role == RoleEnum.DOCENTE,
-            User.is_active == True
-        ).first()
-        
-        if not docente:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El docente especificado no existe o no está activo"
-            )
+    # Verificar que el ciclo existe
+    ciclo = db.query(Ciclo).filter(
+        Ciclo.id == curso_data.ciclo_id,
+        Ciclo.is_active == True
+    ).first()
     
+    if not ciclo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ciclo no encontrado o inactivo"
+        )
+    
+    # Crear el curso
     new_curso = Curso(**curso_data.dict())
     db.add(new_curso)
     db.commit()
@@ -316,7 +315,7 @@ def update_curso(
             detail="Curso no encontrado"
         )
     
-    # Verificar código único si se está actualizando
+    # Verificar código único si se está cambiando
     if curso_data.codigo and curso_data.codigo != curso.codigo:
         existing_curso = db.query(Curso).filter(
             Curso.codigo == curso_data.codigo,
@@ -326,26 +325,24 @@ def update_curso(
         if existing_curso:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Ya existe un curso con ese código"
+                detail="Ya existe un curso con este código"
             )
     
-    # Verificar docente si se está actualizando
-    if curso_data.docente_id:
-        docente = db.query(User).filter(
-            User.id == curso_data.docente_id,
-            User.role == RoleEnum.DOCENTE,
-            User.is_active == True
+    # Verificar ciclo si se está cambiando
+    if curso_data.ciclo_id and curso_data.ciclo_id != curso.ciclo_id:
+        ciclo = db.query(Ciclo).filter(
+            Ciclo.id == curso_data.ciclo_id,
+            Ciclo.is_active == True
         ).first()
         
-        if not docente:
+        if not ciclo:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El docente especificado no existe o no está activo"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ciclo no encontrado o inactivo"
             )
     
     # Actualizar campos
-    update_data = curso_data.dict(exclude_unset=True)
-    for field, value in update_data.items():
+    for field, value in curso_data.dict(exclude_unset=True).items():
         setattr(curso, field, value)
     
     db.commit()
@@ -368,14 +365,8 @@ def delete_curso(
             detail="Curso no encontrado"
         )
     
-    # Verificar si el curso tiene matrículas asociadas
-    matriculas_asociadas = db.query(Matricula).filter(Matricula.curso_id == curso_id).count()
-    
-    if matriculas_asociadas > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No se puede eliminar el curso porque tiene {matriculas_asociadas} matrícula(s) asociada(s). Elimine primero las matrículas."
-        )
+    # Since matriculas are no longer related to courses, we can delete courses directly
+    # No need to check for associated matriculas
     
     # Eliminar definitivamente el curso
     db.delete(curso)
@@ -383,7 +374,7 @@ def delete_curso(
     
     return {"message": "Curso eliminado definitivamente"}
 
-@router.post("/cursos/{curso_id}/asignar-docente/{docente_id}")
+@router.put("/cursos/{curso_id}/asignar-docente")
 def asignar_docente_curso(
     curso_id: int,
     docente_id: int,
@@ -391,6 +382,7 @@ def asignar_docente_curso(
 ):
     """Asignar un docente a un curso"""
     
+    # Verificar que el curso existe
     curso = db.query(Curso).filter(Curso.id == curso_id).first()
     if not curso:
         raise HTTPException(
@@ -398,6 +390,7 @@ def asignar_docente_curso(
             detail="Curso no encontrado"
         )
     
+    # Verificar que el docente existe y tiene el rol correcto
     docente = db.query(User).filter(
         User.id == docente_id,
         User.role == RoleEnum.DOCENTE,
@@ -407,13 +400,15 @@ def asignar_docente_curso(
     if not docente:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Docente no encontrado o no está activo"
+            detail="Docente no encontrado o no activo"
         )
     
+    # Asignar el docente al curso
     curso.docente_id = docente_id
     db.commit()
+    db.refresh(curso)
     
-    return {"message": f"Docente {docente.full_name} asignado al curso {curso.nombre} exitosamente"}
+    return {"message": "Docente asignado correctamente al curso"}
 
 @router.delete("/cursos/{curso_id}/desasignar-docente")
 def desasignar_docente_curso(
@@ -422,6 +417,7 @@ def desasignar_docente_curso(
 ):
     """Desasignar el docente de un curso"""
     
+    # Verificar que el curso existe
     curso = db.query(Curso).filter(Curso.id == curso_id).first()
     if not curso:
         raise HTTPException(
@@ -429,7 +425,9 @@ def desasignar_docente_curso(
             detail="Curso no encontrado"
         )
     
+    # Desasignar el docente
     curso.docente_id = None
     db.commit()
+    db.refresh(curso)
     
-    return {"message": f"Docente desasignado del curso {curso.nombre} exitosamente"}
+    return {"message": "Docente desasignado correctamente del curso"}

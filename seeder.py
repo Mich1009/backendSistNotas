@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from datetime import datetime, date
 from app.database import SessionLocal, engine, Base
-from app.shared.models import User, RoleEnum, Carrera, Ciclo, Curso, Matricula, Nota, HistorialNota
+from app.shared.models import User, RoleEnum, Carrera
 from app.modules.auth.security import get_password_hash
 
 def check_database_connection():
@@ -81,6 +81,11 @@ def create_test_users():
     db: Session = SessionLocal()
     
     try:
+        # Obtener la carrera de Desarrollo de Software para asignar a estudiantes
+        carrera_ds = db.query(Carrera).filter(
+            Carrera.codigo == "DS"
+        ).first()
+        
         # Lista de usuarios específicos de la imagen
         test_users = [
             # Administrador
@@ -150,7 +155,8 @@ def create_test_users():
                     "fecha_nacimiento": date(2000, 1, 1),  # Fecha ejemplo
                     "direccion": "Av. Ejemplo 123, Lima",
                     "nombre_apoderado": "María López",
-                    "telefono_apoderado": "987654324"
+                    "telefono_apoderado": "987654324",
+                    "carrera_id": carrera_ds.id if carrera_ds else None
                 })
             elif user_data["role"] == RoleEnum.DOCENTE:
                 user_fields.update({

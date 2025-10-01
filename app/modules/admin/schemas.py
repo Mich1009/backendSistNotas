@@ -63,6 +63,8 @@ class UserResponse(BaseModel):
     direccion: Optional[str] = None
     nombre_apoderado: Optional[str] = None
     telefono_apoderado: Optional[str] = None
+    carrera_id: Optional[int] = None
+    carrera: Optional['CarreraResponse'] = None
     
     # Campos específicos para docentes
     especialidad: Optional[str] = None
@@ -153,16 +155,16 @@ class CicloResponse(BaseModel):
 class CursoCreate(BaseModel):
     nombre: str = Field(..., min_length=3, max_length=100)
     codigo: str = Field(..., min_length=3, max_length=10)
+    descripcion: Optional[str] = None
     creditos: int = Field(..., ge=1, le=10)
-    horas_semanales: int = Field(..., ge=1, le=20)
     ciclo_id: int
-    docente_id: int
+    docente_id: Optional[int] = None
 
 class CursoUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=3, max_length=100)
     codigo: Optional[str] = Field(None, min_length=3, max_length=10)
+    descripcion: Optional[str] = None
     creditos: Optional[int] = Field(None, ge=1, le=10)
-    horas_semanales: Optional[int] = Field(None, ge=1, le=20)
     ciclo_id: Optional[int] = None
     docente_id: Optional[int] = None
     is_active: Optional[bool] = None
@@ -171,14 +173,15 @@ class CursoResponse(BaseModel):
     id: int
     nombre: str
     codigo: str
+    descripcion: Optional[str] = None
     creditos: int
-    horas_semanales: int
     ciclo_id: int
-    docente_id: int
+    docente_id: Optional[int] = None
     is_active: bool
     created_at: datetime
+    updated_at: Optional[datetime] = None
     
-    # Información relacionada
+    # Información adicional calculada
     ciclo_nombre: Optional[str] = None
     docente_nombre: Optional[str] = None
     total_matriculados: Optional[int] = None
@@ -196,24 +199,25 @@ class CursoListResponse(BaseModel):
 # Schemas para gestión de matrículas
 class MatriculaCreate(BaseModel):
     estudiante_id: int
-    curso_id: int
     ciclo_id: int
 
 class MatriculaUpdate(BaseModel):
-    is_active: bool
+    estado: Optional[str] = None  # activa, inactiva, retirada
+    is_active: Optional[bool] = None
 
 class MatriculaResponse(BaseModel):
     id: int
     estudiante_id: int
-    curso_id: int
     ciclo_id: int
+    codigo_matricula: Optional[str] = None
     fecha_matricula: datetime
+    estado: Optional[str] = None
     is_active: bool
     
     # Información relacionada
     estudiante_nombre: Optional[str] = None
-    curso_nombre: Optional[str] = None
     ciclo_nombre: Optional[str] = None
+    carrera_nombre: Optional[str] = None
     
     class Config:
         from_attributes = True
