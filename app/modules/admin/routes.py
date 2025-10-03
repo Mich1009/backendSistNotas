@@ -13,6 +13,7 @@ from .schemas import AdminDashboard, EstadisticasGenerales, ReporteUsuarios
 from .docentes_routes import router as docentes_router
 from .estudiantes_routes import router as estudiantes_router
 from .cursos_ciclos_routes import router as cursos_ciclos_router
+from .matriculas_routes import router as matriculas_router
 from .notas_routes import router as notas_router
 from .reportes_routes import router as reportes_router
 
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 router.include_router(docentes_router)
 router.include_router(estudiantes_router)
 router.include_router(cursos_ciclos_router)
+router.include_router(matriculas_router)
 router.include_router(notas_router)
 router.include_router(reportes_router)
 
@@ -89,18 +91,8 @@ def get_admin_dashboard(
             "fecha": datetime.utcnow()
         })
     
-    # Verificar cursos sin docente asignado
-    cursos_sin_docente = db.query(Curso).filter(
-        Curso.is_active == True,
-        Curso.docente_id.is_(None)
-    ).count()
-    
-    if cursos_sin_docente > 0:
-        alertas.append({
-            "tipo": "error",
-            "mensaje": f"{cursos_sin_docente} cursos sin docente asignado",
-            "fecha": datetime.utcnow()
-        })
+    # Nota: Ya no verificamos cursos sin docente asignado porque el modelo Curso
+    # ya no tiene relación directa con docentes
     
     return AdminDashboard(
         estadisticas_generales=estadisticas,

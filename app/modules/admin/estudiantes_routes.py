@@ -7,7 +7,7 @@ from datetime import datetime
 from ...database import get_db
 from ..auth.dependencies import get_admin_user
 from ..auth.security import get_password_hash
-from ...shared.models import User, RoleEnum, Matricula, Nota, Ciclo, Curso
+from ...shared.models import User, RoleEnum, Matricula, Nota, Ciclo, Curso, Carrera
 from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse
 
 router = APIRouter(prefix="/estudiantes", tags=["Admin - Estudiantes"])
@@ -25,7 +25,7 @@ def get_estudiantes(
 ):
     """Obtener lista de estudiantes con filtros y paginación"""
     
-    query = db.query(User).filter(User.role == RoleEnum.ESTUDIANTE)
+    query = db.query(User).options(joinedload(User.carrera)).filter(User.role == RoleEnum.ESTUDIANTE)
     
     # Aplicar filtros
     if search:
@@ -70,9 +70,9 @@ def get_estudiante(
     estudiante_id: int,
     db: Session = Depends(get_db)
 ):
-    """Obtener un estudiante específico por ID"""
+    """Obtener un estudiante por ID"""
     
-    estudiante = db.query(User).filter(
+    estudiante = db.query(User).options(joinedload(User.carrera)).filter(
         User.id == estudiante_id,
         User.role == RoleEnum.ESTUDIANTE
     ).first()
@@ -110,6 +110,15 @@ def create_estudiante(
             detail="Ya existe un usuario con ese DNI o email"
         )
     
+    # Obtener la carrera por defecto (la primera carrera activa)
+    carrera_default = db.query(Carrera).filter(Carrera.is_active == True).first()
+    
+    if not carrera_default:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay carreras disponibles en el sistema"
+        )
+    
     # Crear el estudiante
     hashed_password = get_password_hash(estudiante_data.password)
     
@@ -125,6 +134,7 @@ def create_estudiante(
         direccion=estudiante_data.direccion,
         nombre_apoderado=estudiante_data.nombre_apoderado,
         telefono_apoderado=estudiante_data.telefono_apoderado,
+        carrera_id=carrera_default.id,  # Asignar carrera por defecto
         is_active=estudiante_data.is_active
     )
     
@@ -327,9 +337,10 @@ def search_estudiante_by_dni(
 ):
     """Buscar estudiante por DNI"""
     
-    estudiante = db.query(User).filter(
+    estudiante = db.query(User).options(joinedload(User.carrera)).filter(
         User.dni == dni,
-        User.role == RoleEnum.ESTUDIANTE
+        User.role == RoleEnum.ESTUDIANTE,
+        User.is_active == True
     ).first()
     
     if not estudiante:
@@ -338,4 +349,20 @@ def search_estudiante_by_dni(
             detail="Estudiante no encontrado"
         )
     
-    return estudiante
+    return {
+        "id": estudiante.id,
+        "dni": estudiante.dni,
+        "email": estudiante.email,
+        "first_name": estudiante.first_name,
+        "last_name": estudiante.last_name,
+        "full_name": estudiante.full_name,
+        "phone": estudiante.phone,
+        "fecha_nacimiento": estudiante.fecha_nacimiento,
+        "direccion": estudiante.direccion,
+        "nombre_apoderado": estudiante.nombre_apoderado,
+        "telefono_apoderado": estudiante.telefono_apoderado,
+        "carrera_id": estudiante.carrera_id,
+        "carrera": estudiante.carrera,
+        "is_active": estudiante.is_active,
+        "created_at": estudiante.created_at
+    }
