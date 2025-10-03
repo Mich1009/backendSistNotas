@@ -6,7 +6,7 @@ import json
 class Settings(BaseSettings):
     # Base de datos - PostgreSQL
     # Usa DATABASE_URL del archivo .env, con fallback por defecto
-    database_url: str = "postgresql://postgres:password@localhost:5432/sistema_notas"
+    database_url: str = "postgresql://postgres:admin1009@localhost:5432/sistema_notas"
     
     # JWT
     # Usa SECRET_KEY del archivo .env, con fallback por defecto
