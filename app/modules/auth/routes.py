@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from ...database import get_db
 from .models import User
-from .schemas import UserLogin, Token, UserResponse, PasswordReset, PasswordResetConfirm, ChangePassword
+from .schemas import UserLogin, Token, UserResponse, PasswordReset, PasswordResetConfirm, ChangePassword, UserUpdate
 from .security import verify_password, get_password_hash, create_access_token, verify_password_reset_token
 from .dependencies import get_current_active_user
 
@@ -118,6 +118,28 @@ def change_password(
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user: User = Depends(get_current_active_user)):
     """Obtener información del usuario actual"""
+    return current_user
+
+@router.put("/me", response_model=UserResponse)
+def update_current_user_info(
+    user_update: UserUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Actualizar información del usuario actual"""
+    
+    # Actualizar solo los campos proporcionados
+    update_data = user_update.dict(exclude_unset=True)
+    
+    for field, value in update_data.items():
+        setattr(current_user, field, value)
+    
+    # Actualizar timestamp
+    current_user.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(current_user)
+    
     return current_user
 
 @router.post("/logout")

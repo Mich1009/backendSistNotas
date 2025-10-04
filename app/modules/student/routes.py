@@ -10,8 +10,8 @@ from ..auth.models import User, RoleEnum
 from .models import Carrera, Ciclo, Curso, Matricula, Nota
 from .schemas import (
     CarreraResponse, CicloResponse, CursoEstudianteResponse, 
-    MatriculaCreate, MatriculaResponse, NotaEstudianteResponse,
-    EstudianteDashboard, EstadisticasEstudiante, SolicitudMatricula
+    MatriculaResponse, NotaEstudianteResponse,
+    EstudianteDashboard, EstadisticasEstudiante
 )
 
 router = APIRouter(prefix="/student", tags=["Estudiante"])
@@ -23,14 +23,19 @@ def get_student_dashboard(
 ):
     """Obtener dashboard completo del estudiante"""
     
-    # Obtener cursos actuales del estudiante
-    cursos_actuales = db.query(Curso).join(Matricula).filter(
+    # Obtener cursos actuales del estudiante a través de matrículas
+    matriculas_activas = db.query(Matricula).filter(
         Matricula.estudiante_id == current_user.id,
-        Matricula.is_active == True,
+        Matricula.is_active == True
+    ).all()
+    
+    # Obtener cursos de los ciclos en los que está matriculado
+    ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
+    cursos_actuales = db.query(Curso).filter(
+        Curso.ciclo_id.in_(ciclo_ids),
         Curso.is_active == True
     ).options(
-        joinedload(Curso.carrera),
-        joinedload(Curso.ciclo),
+        joinedload(Curso.ciclo).joinedload(Ciclo.carrera),
         joinedload(Curso.docente)
     ).all()
     
@@ -42,8 +47,8 @@ def get_student_dashboard(
             "nombre": curso.nombre,
             "codigo": curso.codigo,
             "creditos": curso.creditos,
-            "horas_semanales": curso.horas_semanales,
-            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}",
+            "horas_semanales": getattr(curso, 'horas_semanales', 0),
+            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
             "ciclo_nombre": curso.ciclo.nombre
         }
         cursos_response.append(curso_data)
@@ -62,12 +67,12 @@ def get_student_dashboard(
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
             "curso_codigo": nota.curso.codigo,
-            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}",
-            "nota_1": nota.nota_1,
-            "nota_2": nota.nota_2,
-            "nota_3": nota.nota_3,
-            "nota_4": nota.nota_4,
-            "promedio": nota.promedio,
+            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
+            "nota_1": None,  # El modelo actual no tiene estos campos
+            "nota_2": None,
+            "nota_3": None,
+            "nota_4": None,
+            "promedio": float(nota.nota) if nota.nota else None,
             "observaciones": nota.observaciones
         }
         notas_response.append(nota_data)
@@ -78,22 +83,22 @@ def get_student_dashboard(
     # Calcular promedio general
     todas_las_notas = db.query(Nota).filter(
         Nota.estudiante_id == current_user.id,
-        Nota.promedio.isnot(None)
+        Nota.nota.isnot(None)
     ).all()
     
     promedio_general = None
     if todas_las_notas:
-        suma_promedios = sum(float(nota.promedio) for nota in todas_las_notas)
+        suma_promedios = sum(float(nota.nota) for nota in todas_las_notas)
         promedio_general = Decimal(str(suma_promedios / len(todas_las_notas)))
     
     # Contar cursos aprobados/desaprobados
-    cursos_aprobados = sum(1 for nota in todas_las_notas if nota.promedio and nota.promedio >= 11)
-    cursos_desaprobados = sum(1 for nota in todas_las_notas if nota.promedio and nota.promedio < 11)
+    cursos_aprobados = sum(1 for nota in todas_las_notas if nota.nota and float(nota.nota) >= 11)
+    cursos_desaprobados = sum(1 for nota in todas_las_notas if nota.nota and float(nota.nota) < 11)
     
     # Calcular créditos completados
     creditos_completados = sum(
         curso.creditos for curso in cursos_actuales 
-        if any(nota.promedio and nota.promedio >= 11 for nota in todas_las_notas if nota.curso_id == curso.id)
+        if any(nota.nota and float(nota.nota) >= 11 for nota in todas_las_notas if nota.curso_id == curso.id)
     )
     
     estadisticas = {
@@ -124,38 +129,52 @@ def get_student_courses(
 ):
     """Obtener cursos del estudiante"""
     
-    query = db.query(Curso).join(Matricula).filter(
-        Matricula.estudiante_id == current_user.id,
-        Matricula.is_active == True
-    ).options(
-        joinedload(Curso.carrera),
-        joinedload(Curso.ciclo),
-        joinedload(Curso.docente)
-    )
-    
-    if ciclo_id:
-        query = query.filter(Curso.ciclo_id == ciclo_id)
-    
-    cursos = query.all()
-    
-    # Convertir a formato de respuesta
-    cursos_response = []
-    for curso in cursos:
-        curso_data = {
-            "id": curso.id,
-            "nombre": curso.nombre,
-            "codigo": curso.codigo,
-            "creditos": curso.creditos,
-            "horas_semanales": curso.horas_semanales,
-            "horario": curso.horario,
-            "aula": curso.aula,
-            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}",
-            "carrera_nombre": curso.carrera.nombre,
-            "ciclo_nombre": curso.ciclo.nombre
-        }
-        cursos_response.append(curso_data)
-    
-    return cursos_response
+    try:
+        # Obtener matrículas activas del estudiante
+        matriculas_activas = db.query(Matricula).filter(
+            Matricula.estudiante_id == current_user.id,
+            Matricula.is_active == True
+        )
+        
+        if ciclo_id:
+            matriculas_activas = matriculas_activas.filter(Matricula.ciclo_id == ciclo_id)
+        
+        matriculas_activas = matriculas_activas.all()
+        
+        # Obtener cursos de los ciclos en los que está matriculado
+        ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
+        cursos = db.query(Curso).filter(
+            Curso.ciclo_id.in_(ciclo_ids),
+            Curso.is_active == True
+        ).options(
+            joinedload(Curso.ciclo).joinedload(Ciclo.carrera),
+            joinedload(Curso.docente)
+        ).all()
+        
+        # Convertir a formato de respuesta
+        cursos_response = []
+        for curso in cursos:
+            curso_data = {
+                "id": curso.id,
+                "nombre": curso.nombre,
+                "codigo": curso.codigo,
+                "creditos": curso.creditos,
+                "horas_semanales": getattr(curso, 'horas_semanales', 0),
+                "horario": getattr(curso, 'horario', None),
+                "aula": getattr(curso, 'aula', None),
+                "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
+                "carrera_nombre": curso.ciclo.carrera.nombre if curso.ciclo and curso.ciclo.carrera else "Sin carrera",
+                "ciclo_nombre": curso.ciclo.nombre
+            }
+            cursos_response.append(curso_data)
+        
+        return cursos_response
+    except Exception as e:
+        print(f"Error in get_student_courses: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener los cursos del estudiante"
+        )
 
 @router.get("/grades", response_model=List[NotaEstudianteResponse])
 def get_student_grades(
@@ -165,35 +184,42 @@ def get_student_grades(
 ):
     """Obtener notas del estudiante"""
     
-    query = db.query(Nota).filter(
-        Nota.estudiante_id == current_user.id
-    ).options(
-        joinedload(Nota.curso).joinedload(Curso.docente)
-    )
-    
-    if curso_id:
-        query = query.filter(Nota.curso_id == curso_id)
-    
-    notas = query.order_by(Nota.updated_at.desc()).all()
-    
-    # Convertir a formato de respuesta
-    notas_response = []
-    for nota in notas:
-        nota_data = {
-            "id": nota.id,
-            "curso_nombre": nota.curso.nombre,
-            "curso_codigo": nota.curso.codigo,
-            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}",
-            "nota_1": nota.nota_1,
-            "nota_2": nota.nota_2,
-            "nota_3": nota.nota_3,
-            "nota_4": nota.nota_4,
-            "promedio": nota.promedio,
-            "observaciones": nota.observaciones
-        }
-        notas_response.append(nota_data)
-    
-    return notas_response
+    try:
+        query = db.query(Nota).filter(
+            Nota.estudiante_id == current_user.id
+        ).options(
+            joinedload(Nota.curso).joinedload(Curso.docente)
+        )
+        
+        if curso_id:
+            query = query.filter(Nota.curso_id == curso_id)
+        
+        notas = query.order_by(Nota.updated_at.desc()).all()
+        
+        # Convertir a formato de respuesta
+        notas_response = []
+        for nota in notas:
+            nota_data = {
+                "id": nota.id,
+                "curso_nombre": nota.curso.nombre,
+                "curso_codigo": nota.curso.codigo,
+                "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
+                "nota_1": None,  # El modelo actual no tiene estos campos
+                "nota_2": None,
+                "nota_3": None,
+                "nota_4": None,
+                "promedio": float(nota.nota) if nota.nota else None,
+                "observaciones": nota.observaciones
+            }
+            notas_response.append(nota_data)
+        
+        return notas_response
+    except Exception as e:
+        print(f"Error in get_student_grades: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener las notas del estudiante"
+        )
 
 @router.get("/grades/{curso_id}", response_model=NotaEstudianteResponse)
 def get_student_grade_by_course(
@@ -220,12 +246,12 @@ def get_student_grade_by_course(
         "id": nota.id,
         "curso_nombre": nota.curso.nombre,
         "curso_codigo": nota.curso.codigo,
-        "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}",
-        "nota_1": nota.nota_1,
-        "nota_2": nota.nota_2,
-        "nota_3": nota.nota_3,
-        "nota_4": nota.nota_4,
-        "promedio": nota.promedio,
+        "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
+        "nota_1": None,  # El modelo actual no tiene estos campos
+        "nota_2": None,
+        "nota_3": None,
+        "nota_4": None,
+        "promedio": float(nota.nota) if nota.nota else None,
         "observaciones": nota.observaciones
     }
 
@@ -245,118 +271,10 @@ def get_student_enrollments(
     
     return matriculas
 
-@router.get("/available-courses", response_model=List[CursoEstudianteResponse])
-def get_available_courses_for_enrollment(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db),
-    ciclo_id: Optional[int] = Query(None, description="Filtrar por ciclo específico")
-):
-    """Obtener cursos disponibles para matrícula"""
-    
-    # Obtener cursos en los que el estudiante NO está matriculado
-    cursos_matriculados = db.query(Matricula.curso_id).filter(
-        Matricula.estudiante_id == current_user.id,
-        Matricula.is_active == True
-    ).subquery()
-    
-    query = db.query(Curso).filter(
-        Curso.is_active == True,
-        ~Curso.id.in_(cursos_matriculados)
-    ).options(
-        joinedload(Curso.carrera),
-        joinedload(Curso.ciclo),
-        joinedload(Curso.docente)
-    )
-    
-    if ciclo_id:
-        query = query.filter(Curso.ciclo_id == ciclo_id)
-    
-    cursos_disponibles = query.all()
-    
-    # Convertir a formato de respuesta
-    cursos_response = []
-    for curso in cursos_disponibles:
-        # Verificar cupos disponibles (eliminado - no hay max_estudiantes)
-        curso_data = {
-            "id": curso.id,
-            "nombre": curso.nombre,
-            "codigo": curso.codigo,
-            "creditos": curso.creditos,
-            "horas_semanales": curso.horas_semanales,
-            "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}",
-            "ciclo_nombre": curso.ciclo.nombre
-        }
-        cursos_response.append(curso_data)
-    
-    return cursos_response
+# Endpoint de cursos disponibles eliminado - los estudiantes solo tienen permisos de lectura
 
-@router.post("/enroll", response_model=dict)
-def enroll_in_courses(
-    solicitud: SolicitudMatricula,
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Matricularse en cursos"""
-    
-    # Verificar que el ciclo existe y está activo
-    ciclo = db.query(Ciclo).filter(
-        Ciclo.id == solicitud.ciclo_id,
-        Ciclo.is_active == True
-    ).first()
-    
-    if not ciclo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ciclo no encontrado o inactivo"
-        )
-    
-    matriculas_creadas = []
-    errores = []
-    
-    for curso_id in solicitud.cursos_ids:
-        # Verificar que el curso existe
-        curso = db.query(Curso).filter(
-            Curso.id == curso_id,
-            Curso.is_active == True,
-            Curso.ciclo_id == solicitud.ciclo_id
-        ).first()
-        
-        if not curso:
-            errores.append(f"Curso con ID {curso_id} no encontrado o no pertenece al ciclo")
-            continue
-        
-        # Verificar que no esté ya matriculado
-        matricula_existente = db.query(Matricula).filter(
-            Matricula.estudiante_id == current_user.id,
-            Matricula.curso_id == curso_id,
-            Matricula.is_active == True
-        ).first()
-        
-        if matricula_existente:
-            errores.append(f"Ya está matriculado en el curso {curso.nombre}")
-            continue
-        
-        # Verificar cupos disponibles (eliminado - no hay límite de estudiantes)
-        # Crear matrícula
-        nueva_matricula = Matricula(
-            estudiante_id=current_user.id,
-            curso_id=curso_id,
-            ciclo_id=solicitud.ciclo_id
-        )
-        
-        db.add(nueva_matricula)
-        matriculas_creadas.append(curso.nombre)
-    
-    if matriculas_creadas:
-        db.commit()
-    
-    return {
-        "message": f"Matrícula procesada",
-        "cursos_matriculados": matriculas_creadas,
-        "errores": errores,
-        "total_exitosas": len(matriculas_creadas),
-        "total_errores": len(errores)
-    }
+# Endpoint de matrícula eliminado - los estudiantes solo tienen permisos de lectura
+# La matrícula debe ser gestionada por el administrador
 
 @router.get("/statistics", response_model=EstadisticasEstudiante)
 def get_student_statistics(
@@ -368,13 +286,19 @@ def get_student_statistics(
     # Obtener todas las notas del estudiante
     notas = db.query(Nota).filter(
         Nota.estudiante_id == current_user.id,
-        Nota.promedio.isnot(None)
+        Nota.nota.isnot(None)
     ).all()
     
-    # Obtener cursos actuales
-    cursos_actuales = db.query(Curso).join(Matricula).filter(
+    # Obtener cursos actuales a través de matrículas
+    matriculas_activas = db.query(Matricula).filter(
         Matricula.estudiante_id == current_user.id,
         Matricula.is_active == True
+    ).all()
+    
+    ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
+    cursos_actuales = db.query(Curso).filter(
+        Curso.ciclo_id.in_(ciclo_ids),
+        Curso.is_active == True
     ).all()
     
     # Calcular estadísticas
@@ -382,14 +306,14 @@ def get_student_statistics(
     
     promedio_general = None
     if notas:
-        suma_promedios = sum(float(nota.promedio) for nota in notas)
+        suma_promedios = sum(float(nota.nota) for nota in notas)
         promedio_general = Decimal(str(suma_promedios / len(notas)))
     
-    cursos_aprobados = sum(1 for nota in notas if nota.promedio >= 11)
-    cursos_desaprobados = sum(1 for nota in notas if nota.promedio < 11)
+    cursos_aprobados = sum(1 for nota in notas if nota.nota and float(nota.nota) >= 11)
+    cursos_desaprobados = sum(1 for nota in notas if nota.nota and float(nota.nota) < 11)
     
     # Calcular créditos completados (cursos aprobados)
-    cursos_aprobados_ids = [nota.curso_id for nota in notas if nota.promedio >= 11]
+    cursos_aprobados_ids = [nota.curso_id for nota in notas if nota.nota and float(nota.nota) >= 11]
     creditos_completados = sum(
         curso.creditos for curso in cursos_actuales 
         if curso.id in cursos_aprobados_ids
