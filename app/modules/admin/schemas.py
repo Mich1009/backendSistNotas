@@ -42,6 +42,7 @@ class UserUpdate(BaseModel):
     nombre_apoderado: Optional[str] = Field(None, max_length=100)
     telefono_apoderado: Optional[str] = Field(None, max_length=15)
     
+    password: Optional[str] = Field(None, min_length=6, max_length=200)
     # Campos específicos para docentes
     especialidad: Optional[str] = Field(None, max_length=100)
     grado_academico: Optional[str] = Field(None, max_length=50)

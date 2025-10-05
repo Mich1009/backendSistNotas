@@ -178,6 +178,13 @@ def update_estudiante(
     
     # Actualizar campos
     update_data = estudiante_data.dict(exclude_unset=True)
+
+    # ✅ Si el usuario envía una nueva contraseña, la encriptamos antes de guardar
+    if "password" in update_data and update_data["password"]:
+        hashed_pw = get_password_hash(update_data["password"])
+        estudiante.hashed_password = hashed_pw
+        del update_data["password"]
+    
     for field, value in update_data.items():
         setattr(estudiante, field, value)
     
