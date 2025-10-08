@@ -3,12 +3,31 @@ from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
 
+# Schemas para perfil de docente
+class DocenteProfileUpdate(BaseModel):
+    first_name: Optional[str] = Field(None, min_length=2, max_length=50)
+    last_name: Optional[str] = Field(None, min_length=2, max_length=50)
+    phone: Optional[str] = Field(None, min_length=9, max_length=15)
+    especialidad: Optional[str] = Field(None, min_length=3, max_length=100)
+    grado_academico: Optional[str] = Field(None, min_length=3, max_length=50)
+
+class PasswordUpdate(BaseModel):
+    current_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=6)
+    confirm_password: str = Field(..., min_length=6)
+    
+    @validator('confirm_password')
+    def passwords_match(cls, v, values, **kwargs):
+        if 'new_password' in values and v != values['new_password']:
+            raise ValueError('Las contraseñas no coinciden')
+        return v
+
 # Schemas para gestión de cursos del docente
 class CursoDocenteBase(BaseModel):
     nombre: str
     codigo: str
     creditos: int = Field(..., ge=1, le=10, description="Créditos del curso (1-10)")
-    horas_semanales: int = Field(..., ge=1, le=20, description="Horas semanales (1-20)")
+    horas_semanales: Optional[int] = None
     horario: Optional[str] = None
     aula: Optional[str] = None
     max_estudiantes: int = Field(30, ge=5, le=50, description="Máximo de estudiantes (5-50)")
@@ -25,7 +44,7 @@ class CursoDocenteResponse(BaseModel):
     nombre: str
     codigo: str
     creditos: int
-    horas_semanales: int
+    horas_semanales:Optional[int]= None  # este campo no existe no se porque lo pusiseron
     ciclo_id: int
     docente_id: int
     is_active: bool
@@ -48,12 +67,25 @@ class EstudianteEnCurso(BaseModel):
     class Config:
         from_attributes = True
 
+class NotaResponse(BaseModel):
+    id: int
+    estudiante_id: int
+    estudiante_nombre: str
+    tipo_evaluacion: str
+    nota: float
+    peso: float
+    fecha_evaluacion: str
+    observaciones: str | None
+
+    class Config:
+        from_attributes = True
+
 class EstudianteConNota(EstudianteEnCurso):
     """Estudiante con sus notas en el curso"""
-    nota_1: Optional[Decimal] = None
-    nota_2: Optional[Decimal] = None
-    nota_3: Optional[Decimal] = None
-    nota_4: Optional[Decimal] = None
+    nota1: Optional[Decimal] = None
+    nota2: Optional[Decimal] = None
+    nota3: Optional[Decimal] = None
+    nota4: Optional[Decimal] = None
     promedio: Optional[Decimal] = None
     observaciones: Optional[str] = None
     
@@ -64,36 +96,36 @@ class EstudianteConNota(EstudianteEnCurso):
 class NotaCreate(BaseModel):
     estudiante_id: int
     curso_id: int
-    nota_1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
-    nota_2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
-    nota_3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
-    nota_4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
+    nota1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
+    nota2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
+    nota3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
+    nota4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
     observaciones: Optional[str] = None
 
 class NotaUpdate(BaseModel):
-    nota_1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
-    nota_2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
-    nota_3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
-    nota_4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
+    nota1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
+    nota2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
+    nota3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
+    nota4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
     observaciones: Optional[str] = None
 
 class NotaDocenteResponse(BaseModel):
     id: int
     estudiante_id: int
     curso_id: int
-    nota_1: Optional[Decimal] = None
-    nota_2: Optional[Decimal] = None
-    nota_3: Optional[Decimal] = None
-    nota_4: Optional[Decimal] = None
-    promedio: Optional[Decimal] = None
+    nota1: Optional[Decimal] = None  # ← nota1
+    nota2: Optional[Decimal] = None  # ← nota2
+    nota3: Optional[Decimal] = None  # ← nota3
+    nota4: Optional[Decimal] = None  # ← nota4
+    nota_final: Optional[Decimal] = None  # ← Agregar nota_final
+    estado: Optional[str] = None  # ← Agregar estado
     observaciones: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     # Información del estudiante
-    estudiante_dni: str
-    estudiante_nombres: str
-    estudiante_apellidos: str
+    estudiante_nombre: str  # ← Cambiar nombre para coincidir con tu código
+    curso_nombre: str  # ← Agregar curso_nombre
     
     class Config:
         from_attributes = True
@@ -101,15 +133,14 @@ class NotaDocenteResponse(BaseModel):
 # Schemas para actualización masiva de notas
 class NotaMasiva(BaseModel):
     estudiante_id: int
-    nota_1: Optional[Decimal] = Field(None, ge=0, le=20)
-    nota_2: Optional[Decimal] = Field(None, ge=0, le=20)
-    nota_3: Optional[Decimal] = Field(None, ge=0, le=20)
-    nota_4: Optional[Decimal] = Field(None, ge=0, le=20)
+    nota1: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota1
+    nota2: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota2
+    nota3: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota3
+    nota4: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota4
     observaciones: Optional[str] = None
 
 class ActualizacionMasivaNotas(BaseModel):
-    curso_id: int
-    notas: List[NotaMasiva]
+    notas: List[NotaMasiva]  # ← Remover curso_id de aquí
     
     @validator('notas')
     def validate_notas(cls, v):
