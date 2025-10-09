@@ -1,20 +1,44 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import hashlib
+import os
 from fastapi import HTTPException, status
 from ...config import settings
 
-# Configuración para hashing de contraseñas
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Función para generar un salt aleatorio
+def generate_salt(length=16):
+    """Genera un salt aleatorio para el hash"""
+    return os.urandom(length).hex()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica si la contraseña plana coincide con el hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    # El formato del hash es: algoritmo$salt$hash
+    parts = hashed_password.split('$')
+    if len(parts) != 3:
+        return False
+    
+    algorithm, salt, stored_hash = parts
+    
+    # Recrear el hash con la contraseña proporcionada
+    computed_hash = hashlib.sha256((plain_password + salt).encode()).hexdigest()
+    
+    # Comparar los hashes
+    return computed_hash == stored_hash
 
 def get_password_hash(password: str) -> str:
-    """Genera el hash de una contraseña"""
-    return pwd_context.hash(password)
+    """Genera el hash de una contraseña usando SHA-256 con salt
+    
+    Esta implementación evita los problemas de bcrypt con contraseñas largas
+    """
+    # Generar un salt aleatorio
+    salt = generate_salt()
+    
+    # Crear el hash
+    hash_value = hashlib.sha256((password + salt).encode()).hexdigest()
+    
+    # Devolver en formato: algoritmo$salt$hash
+    return f"sha256${salt}${hash_value}"
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Crea un token JWT de acceso"""
