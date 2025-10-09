@@ -98,7 +98,7 @@ def create_test_users():
                 "phone": "987654321",
                 "role": RoleEnum.ADMIN
             },
-            # Docente
+            # Docentes
             {
                 "dni": "87654321",
                 "email": "docente@sistema.edu",
@@ -106,7 +106,34 @@ def create_test_users():
                 "first_name": "Juan",
                 "last_name": "Pérez",
                 "phone": "987654322",
-                "role": RoleEnum.DOCENTE
+                "role": RoleEnum.DOCENTE,
+                "especialidad": "Ingeniería de Software",
+                "grado_academico": "Magíster",
+                "fecha_ingreso": date(2020, 3, 1)
+            },
+            {
+                "dni": "76543210",
+                "email": "maria@sistema.edu",
+                "password": "docente123",
+                "first_name": "María",
+                "last_name": "González",
+                "phone": "987654324",
+                "role": RoleEnum.DOCENTE,
+                "especialidad": "Inteligencia Artificial",
+                "grado_academico": "Doctor",
+                "fecha_ingreso": date(2019, 5, 15)
+            },
+            {
+                "dni": "65432109",
+                "email": "roberto@sistema.edu",
+                "password": "docente123",
+                "first_name": "Roberto",
+                "last_name": "Sánchez",
+                "phone": "987654325",
+                "role": RoleEnum.DOCENTE,
+                "especialidad": "Redes y Comunicaciones",
+                "grado_academico": "Licenciado",
+                "fecha_ingreso": date(2021, 2, 10)
             },
             # Estudiante
             {

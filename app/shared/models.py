@@ -48,7 +48,12 @@ class User(Base):
     estudiante_matriculas = relationship("Matricula", back_populates="estudiante", foreign_keys="Matricula.estudiante_id")
     notas_estudiante = relationship("Nota", back_populates="estudiante", foreign_keys="Nota.estudiante_id")
     carrera = relationship("Carrera", back_populates="estudiantes", foreign_keys="User.carrera_id")
-    
+    cursos_docente = relationship(
+    "Curso",                # modelo relacionado
+    back_populates="docente",  # debe coincidir con el back_populates del Curso
+    foreign_keys="Curso.docente_id"
+)
+
     def __repr__(self):
         return f"<User(dni={self.dni}, email={self.email}, role={self.role})>"
     
@@ -116,6 +121,7 @@ class Curso(Base):
     codigo = Column(String(20), unique=True, nullable=False)
     descripcion = Column(Text, nullable=True)
     creditos = Column(Integer, nullable=False)
+    horas_semanales = Column(Integer, nullable=True)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
     docente_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Relación con docente
     is_active = Column(Boolean, default=True)
@@ -124,7 +130,8 @@ class Curso(Base):
     
     # Relaciones
     ciclo = relationship("Ciclo", back_populates="cursos")
-    docente = relationship("User", foreign_keys=[docente_id])
+    docente = relationship("User",back_populates="cursos_docente",foreign_keys=[docente_id])
+    matriculas = relationship("Matricula", back_populates="curso")
     notas = relationship("Nota", back_populates="curso")
     
     def __repr__(self):
@@ -135,8 +142,9 @@ class Matricula(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
-    codigo_matricula = Column(String(20), unique=True, nullable=False)
+    codigo_matricula = Column(String(20), unique=True, nullable=True)
     fecha_matricula = Column(Date, nullable=False, server_default=func.current_date())
     estado = Column(String(20), default="activa")  # activa, inactiva, retirada
     is_active = Column(Boolean, default=True)
@@ -145,10 +153,11 @@ class Matricula(Base):
     
     # Relaciones
     estudiante = relationship("User", back_populates="estudiante_matriculas", foreign_keys=[estudiante_id])
+    curso = relationship("Curso", back_populates="matriculas")
     ciclo = relationship("Ciclo", back_populates="matriculas")
     
     def __repr__(self):
-        return f"<Matricula(estudiante_id={self.estudiante_id}, ciclo_id={self.ciclo_id}, codigo_matricula={self.codigo_matricula})>"
+        return f"<Matricula(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, ciclo_id={self.ciclo_id})>"
 
 class Nota(Base):
     __tablename__ = "notas"
@@ -157,7 +166,14 @@ class Nota(Base):
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
     tipo_evaluacion = Column(String(50), nullable=False)
-    nota = Column(Numeric(4, 2), nullable=False)
+    # NUEVOS CAMPOS - TODOS OPCIONALES
+    nota1 = Column(Numeric(4, 2), nullable=True)
+    nota2 = Column(Numeric(4, 2), nullable=True)
+    nota3 = Column(Numeric(4, 2), nullable=True)
+    nota4 = Column(Numeric(4, 2), nullable=True)
+    nota_final = Column(Numeric(4, 2), nullable=True)
+    estado = Column(String(20), nullable=True)  # APROBADO, DESAPROBADO
+    
     peso = Column(Numeric(3, 2), nullable=False)
     fecha_evaluacion = Column(Date, nullable=False)
     observaciones = Column(Text, nullable=True)

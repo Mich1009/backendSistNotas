@@ -118,7 +118,7 @@ class CarreraResponse(BaseModel):
 
 # Schemas para gestión de ciclos
 class CicloCreate(BaseModel):
-    nombre: str = Field(..., min_length=3, max_length=100)
+    nombre: str = Field(..., min_length=1, max_length=100)
     descripcion: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
