@@ -12,22 +12,48 @@ from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse
 
 router = APIRouter(prefix="/estudiantes", tags=["Admin - Estudiantes"])
 
+def get_ciclo_order(ciclo_nombre):
+    """Convierte nombres de ciclos a números para ordenamiento"""
+    if not ciclo_nombre:
+        return 0
+    
+    # Mapeo de números romanos a enteros
+    roman_to_int = {
+        'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+        'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
+    }
+    
+    # Extraer el número romano del nombre del ciclo
+    ciclo_upper = ciclo_nombre.upper()
+    for roman, num in sorted(roman_to_int.items(), key=lambda x: len(x[0]), reverse=True):
+        if roman in ciclo_upper:
+            return num
+    
+    return 0
+
 # ==================== CRUD ESTUDIANTES ====================
 
-@router.get("/", response_model=UserListResponse)
+@router.get("/")
 def get_estudiantes(
     page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=100),
+    per_page: int = Query(10, ge=1, le=1000),
     search: Optional[str] = Query(None),
-    is_active: Optional[bool] = Query(None),
-    ciclo_id: Optional[int] = Query(None),
+    ciclo_nombre: Optional[str] = Query(None, description="Filtrar por nombre de ciclo (I, II, III, IV, V, VI)"),
+    estado_matricula: Optional[str] = Query(None, regex="^(matriculados|sin_matricular|todos)$", description="Filtrar por estado de matrícula: 'matriculados', 'sin_matricular', 'todos'"),
     db: Session = Depends(get_db)
 ):
-    """Obtener lista de estudiantes con filtros y paginación"""
+    """Obtener lista de estudiantes activos, mostrando su ciclo más alto si están matriculados"""
     
-    query = db.query(User).options(joinedload(User.carrera)).filter(User.role == RoleEnum.ESTUDIANTE)
+    # Query base: todos los estudiantes activos ordenados por nombre
+    query = db.query(User).options(
+        joinedload(User.carrera),
+        joinedload(User.estudiante_matriculas).joinedload(Matricula.ciclo)
+    ).filter(
+        User.role == RoleEnum.ESTUDIANTE,
+        User.is_active == True
+    ).order_by(User.last_name, User.first_name)
     
-    # Aplicar filtros
+    # Aplicar filtros de búsqueda
     if search:
         search_filter = or_(
             User.first_name.ilike(f"%{search}%"),
@@ -37,53 +63,74 @@ def get_estudiantes(
         )
         query = query.filter(search_filter)
     
-    if is_active is not None:
-        query = query.filter(User.is_active == is_active)
+    # Obtener todos los estudiantes (sin paginación inicial para procesar ciclos)
+    estudiantes = query.all()
     
-    if ciclo_id:
-        # Filtrar estudiantes matriculados en un ciclo específico
-        query = query.join(Matricula).filter(
-            Matricula.ciclo_id == ciclo_id,
-            Matricula.estado == "activa"
-        )
+    # Procesar estudiantes para obtener su ciclo más alto
+    estudiantes_procesados = []
+    for estudiante in estudiantes:
+        # Obtener todas las matrículas activas
+        matriculas_activas = [m for m in estudiante.estudiante_matriculas if m.estado == "activa"]
+        
+        # Crear objeto estudiante base con solo los campos necesarios para el cliente
+        estudiante_data = {
+            "id": estudiante.id,
+            "dni": estudiante.dni,
+            "email": estudiante.email,
+            "first_name": estudiante.first_name,
+            "last_name": estudiante.last_name,
+            "phone": estudiante.phone,
+            "fecha_nacimiento": estudiante.fecha_nacimiento,
+            "direccion": estudiante.direccion,
+            "nombre_apoderado": estudiante.nombre_apoderado,
+            "telefono_apoderado": estudiante.telefono_apoderado,
+            "carrera": {
+                "nombre": estudiante.carrera.nombre if estudiante.carrera else None
+            } if estudiante.carrera else None,
+        }
+        
+        if matriculas_activas:
+            # Encontrar la matrícula con el ciclo más alto usando la función de ordenamiento
+            matricula_ciclo_mayor = max(matriculas_activas, key=lambda m: (
+                get_ciclo_order(m.ciclo.nombre) if get_ciclo_order(m.ciclo.nombre) > 0 else m.ciclo.numero
+            ))
+            
+            # Agregar solo el ciclo actual que necesita el cliente
+            estudiante_data["ciclo_actual"] = matricula_ciclo_mayor.ciclo.nombre
+            estudiante_data["ciclo_actual_id"] = matricula_ciclo_mayor.ciclo_id
+        else:
+            # Estudiante sin matrículas activas
+            estudiante_data["ciclo_actual"] = None
+            estudiante_data["ciclo_actual_id"] = None
+        
+        estudiantes_procesados.append(estudiante_data)
     
-    # Contar total
-    total = query.count()
+    # Filtrar por estado de matrícula
+    if estado_matricula:
+        if estado_matricula == "matriculados":
+            estudiantes_procesados = [e for e in estudiantes_procesados if e["ciclo_actual"] is not None]
+        elif estado_matricula == "sin_matricular":
+            estudiantes_procesados = [e for e in estudiantes_procesados if e["ciclo_actual"] is None]
+        # Si es "todos", no filtrar
+    
+    # Filtrar por ciclo específico si se proporciona
+    if ciclo_nombre:
+        estudiantes_procesados = [e for e in estudiantes_procesados if e["ciclo_actual"] == ciclo_nombre]
     
     # Aplicar paginación
+    total = len(estudiantes_procesados)
     offset = (page - 1) * per_page
-    estudiantes = query.offset(offset).limit(per_page).all()
-    
-    # Calcular páginas totales
+    estudiantes_paginados = estudiantes_procesados[offset:offset + per_page]
     total_pages = (total + per_page - 1) // per_page
     
     return {
-        "users": estudiantes,
+        "estudiantes": estudiantes_paginados,
         "total": total,
         "page": page,
         "per_page": per_page,
-        "total_pages": total_pages
+        "total_pages": total_pages,
+        "has_pagination": ciclo_nombre is None  # Indicador para el frontend
     }
-
-@router.get("/{estudiante_id}", response_model=UserResponse)
-def get_estudiante(
-    estudiante_id: int,
-    db: Session = Depends(get_db)
-):
-    """Obtener un estudiante por ID"""
-    
-    estudiante = db.query(User).options(joinedload(User.carrera)).filter(
-        User.id == estudiante_id,
-        User.role == RoleEnum.ESTUDIANTE
-    ).first()
-    
-    if not estudiante:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estudiante no encontrado"
-        )
-    
-    return estudiante
 
 @router.post("/", response_model=UserResponse)
 def create_estudiante(
@@ -191,7 +238,7 @@ def delete_estudiante(
     estudiante_id: int,
     db: Session = Depends(get_db)
 ):
-    """Eliminar (desactivar) un estudiante"""
+    """Eliminar completamente un estudiante (hard delete)"""
     
     estudiante = db.query(User).filter(
         User.id == estudiante_id,
@@ -204,140 +251,30 @@ def delete_estudiante(
             detail="Estudiante no encontrado"
         )
     
-    # Verificar si el estudiante tiene matrículas activas
-    matriculas_activas = db.query(Matricula).filter(
-        Matricula.estudiante_id == estudiante_id,
-        Matricula.estado == "activa"
-    ).count()
-    
-    if matriculas_activas > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No se puede eliminar el estudiante porque tiene {matriculas_activas} matrículas activas"
-        )
-    
-    # Desactivar en lugar de eliminar
-    estudiante.is_active = False
+    # Eliminar completamente el estudiante
+    db.delete(estudiante)
     db.commit()
     
-    return {"message": "Estudiante desactivado exitosamente"}
-
-@router.get("/{estudiante_id}/notas")
-def get_estudiante_notas(
-    estudiante_id: int,
-    ciclo_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
-):
-    """Obtener las notas de un estudiante, opcionalmente filtradas por ciclo"""
-    
-    estudiante = db.query(User).filter(
-        User.id == estudiante_id,
-        User.role == RoleEnum.ESTUDIANTE
-    ).first()
-    
-    if not estudiante:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estudiante no encontrado"
-        )
-    
-    query = db.query(Nota).options(
-        joinedload(Nota.curso),
-        joinedload(Nota.curso).joinedload(Curso.ciclo)
-    ).filter(Nota.estudiante_id == estudiante_id)
-    
-    if ciclo_id:
-        query = query.join(Curso).filter(Curso.ciclo_id == ciclo_id)
-    
-    notas = query.all()
-    
-    # Calcular promedio por ciclo
-    promedios_por_ciclo = {}
-    for nota in notas:
-        ciclo = nota.curso.ciclo.id
-        if ciclo not in promedios_por_ciclo:
-            promedios_por_ciclo[ciclo] = {
-                "ciclo_nombre": nota.curso.ciclo.nombre,
-                "notas": [],
-                "promedio": 0
-            }
-        promedios_por_ciclo[ciclo]["notas"].append(float(nota.nota))
-    
-    # Calcular promedios
-    for ciclo_id, data in promedios_por_ciclo.items():
-        if data["notas"]:
-            data["promedio"] = sum(data["notas"]) / len(data["notas"])
-    
-    return {
-        "estudiante": estudiante,
-        "notas": notas,
-        "promedios_por_ciclo": promedios_por_ciclo,
-        "total_notas": len(notas)
-    }
-
-@router.get("/{estudiante_id}/matriculas")
-def get_estudiante_matriculas(
-    estudiante_id: int,
-    db: Session = Depends(get_db)
-):
-    """Obtener las matrículas de un estudiante"""
-    
-    estudiante = db.query(User).filter(
-        User.id == estudiante_id,
-        User.role == RoleEnum.ESTUDIANTE
-    ).first()
-    
-    if not estudiante:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estudiante no encontrado"
-        )
-    
-    matriculas = db.query(Matricula).options(
-        joinedload(Matricula.curso),
-        joinedload(Matricula.ciclo),
-        joinedload(Matricula.carrera)
-    ).filter(
-        Matricula.estudiante_id == estudiante_id
-    ).order_by(desc(Matricula.fecha_matricula)).all()
-    
-    return {
-        "estudiante": estudiante,
-        "matriculas": matriculas,
-        "total_matriculas": len(matriculas)
-    }
-
-@router.post("/{estudiante_id}/activate")
-def activate_estudiante(
-    estudiante_id: int,
-    db: Session = Depends(get_db)
-):
-    """Activar un estudiante desactivado"""
-    
-    estudiante = db.query(User).filter(
-        User.id == estudiante_id,
-        User.role == RoleEnum.ESTUDIANTE
-    ).first()
-    
-    if not estudiante:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estudiante no encontrado"
-        )
-    
-    estudiante.is_active = True
-    db.commit()
-    
-    return {"message": "Estudiante activado exitosamente"}
+    return {"message": "Estudiante eliminado exitosamente"}
 
 @router.get("/search/dni/{dni}")
 def search_estudiante_by_dni(
     dni: str,
     db: Session = Depends(get_db)
 ):
-    """Buscar estudiante por DNI"""
+    """Buscar estudiante por DNI para matrícula"""
     
-    estudiante = db.query(User).options(joinedload(User.carrera)).filter(
+    # Validar formato de DNI
+    if not dni or len(dni) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DNI debe tener al menos 8 dígitos"
+        )
+    
+    # Buscar estudiante por DNI
+    estudiante = db.query(User).options(
+        joinedload(User.carrera)
+    ).filter(
         User.dni == dni,
         User.role == RoleEnum.ESTUDIANTE,
         User.is_active == True
@@ -346,23 +283,21 @@ def search_estudiante_by_dni(
     if not estudiante:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estudiante no encontrado"
+            detail="No se encontró ningún estudiante con ese DNI"
         )
     
     return {
         "id": estudiante.id,
         "dni": estudiante.dni,
-        "email": estudiante.email,
         "first_name": estudiante.first_name,
         "last_name": estudiante.last_name,
-        "full_name": estudiante.full_name,
+        "email": estudiante.email,
         "phone": estudiante.phone,
         "fecha_nacimiento": estudiante.fecha_nacimiento,
         "direccion": estudiante.direccion,
         "nombre_apoderado": estudiante.nombre_apoderado,
         "telefono_apoderado": estudiante.telefono_apoderado,
-        "carrera_id": estudiante.carrera_id,
-        "carrera": estudiante.carrera,
-        "is_active": estudiante.is_active,
-        "created_at": estudiante.created_at
+        "carrera": {
+            "nombre": estudiante.carrera.nombre
+        } if estudiante.carrera else None
     }

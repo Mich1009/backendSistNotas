@@ -97,6 +97,8 @@ class Ciclo(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
+    numero = Column(Integer, nullable=False)  # Campo para identificar el orden del ciclo (1, 2, 3, etc.)
+    año = Column(Integer, nullable=False)  # Campo para el año del ciclo basado en fecha_inicio
     descripcion = Column(Text, nullable=True)
     fecha_inicio = Column(Date, nullable=False)
     fecha_fin = Column(Date, nullable=False)
@@ -118,10 +120,7 @@ class Curso(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
-    codigo = Column(String(20), unique=True, nullable=False)
     descripcion = Column(Text, nullable=True)
-    creditos = Column(Integer, nullable=False)
-    horas_semanales = Column(Integer, nullable=True)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
     docente_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Relación con docente
     is_active = Column(Boolean, default=True)
@@ -131,18 +130,16 @@ class Curso(Base):
     # Relaciones
     ciclo = relationship("Ciclo", back_populates="cursos")
     docente = relationship("User",back_populates="cursos_docente",foreign_keys=[docente_id])
-    matriculas = relationship("Matricula", back_populates="curso")
     notas = relationship("Nota", back_populates="curso")
     
     def __repr__(self):
-        return f"<Curso(codigo={self.codigo}, nombre={self.nombre})>"
+        return f"<Curso(id={self.id}, nombre='{self.nombre}')>"
 
 class Matricula(Base):
     __tablename__ = "matriculas"
     
     id = Column(Integer, primary_key=True, index=True)
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
     codigo_matricula = Column(String(20), unique=True, nullable=True)
     fecha_matricula = Column(Date, nullable=False, server_default=func.current_date())
@@ -153,11 +150,10 @@ class Matricula(Base):
     
     # Relaciones
     estudiante = relationship("User", back_populates="estudiante_matriculas", foreign_keys=[estudiante_id])
-    curso = relationship("Curso", back_populates="matriculas")
     ciclo = relationship("Ciclo", back_populates="matriculas")
     
     def __repr__(self):
-        return f"<Matricula(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, ciclo_id={self.ciclo_id})>"
+        return f"<Matricula(estudiante_id={self.estudiante_id}, ciclo_id={self.ciclo_id})>"
 
 class Nota(Base):
     __tablename__ = "notas"
