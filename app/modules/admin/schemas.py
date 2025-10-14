@@ -119,6 +119,7 @@ class CarreraResponse(BaseModel):
 # Schemas para gestión de ciclos
 class CicloCreate(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=100)
+    numero: int = Field(..., ge=1, le=10)  # Campo para identificar el orden del ciclo
     descripcion: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
@@ -139,6 +140,8 @@ class CicloUpdate(BaseModel):
 class CicloResponse(BaseModel):
     id: int
     nombre: str
+    numero: int
+    año: int  # Campo para el año del ciclo
     descripcion: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
@@ -154,17 +157,13 @@ class CicloResponse(BaseModel):
 # Schemas para gestión de cursos
 class CursoCreate(BaseModel):
     nombre: str = Field(..., min_length=3, max_length=100)
-    codigo: str = Field(..., min_length=3, max_length=10)
     descripcion: Optional[str] = None
-    creditos: int = Field(..., ge=1, le=10)
     ciclo_id: int
     docente_id: Optional[int] = None
 
 class CursoUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=3, max_length=100)
-    codigo: Optional[str] = Field(None, min_length=3, max_length=10)
     descripcion: Optional[str] = None
-    creditos: Optional[int] = Field(None, ge=1, le=10)
     ciclo_id: Optional[int] = None
     docente_id: Optional[int] = None
     is_active: Optional[bool] = None
@@ -172,9 +171,7 @@ class CursoUpdate(BaseModel):
 class CursoResponse(BaseModel):
     id: int
     nombre: str
-    codigo: str
     descripcion: Optional[str] = None
-    creditos: int
     ciclo_id: int
     docente_id: Optional[int] = None
     is_active: bool

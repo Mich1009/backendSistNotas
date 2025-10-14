@@ -16,6 +16,7 @@ router = APIRouter(prefix="/cursos-ciclos", tags=["Admin - Cursos y Ciclos"])
 
 # ==================== CICLOS ====================
 
+# Obtiene ciclos
 @router.get("/ciclos", response_model=List[CicloResponse])
 def get_ciclos(
     is_active: Optional[bool] = Query(None),
@@ -40,6 +41,9 @@ def get_ciclos(
     if is_active is not None:
         query = query.filter(Ciclo.is_active == is_active)
     
+    # Ordenar por año (descendente) y luego por número (ascendente)
+    query = query.order_by(Ciclo.año.desc(), Ciclo.numero.asc())
+    
     ciclos = query.all()
     
     # Agregar estadísticas
@@ -57,6 +61,7 @@ def get_ciclos(
     
     return ciclos
 
+# Crea ciclo
 @router.post("/ciclos", response_model=CicloResponse)
 def create_ciclo(
     ciclo_data: CicloCreate,
@@ -80,6 +85,9 @@ def create_ciclo(
     ciclo_dict = ciclo_data.dict()
     ciclo_dict['carrera_id'] = carrera.id
     
+    # Calcular automáticamente el año basado en la fecha de inicio
+    ciclo_dict['año'] = ciclo_data.fecha_inicio.year
+    
     new_ciclo = Ciclo(**ciclo_dict)
     db.add(new_ciclo)
     db.commit()
@@ -87,6 +95,7 @@ def create_ciclo(
     
     return new_ciclo
 
+# Actualiza ciclo
 @router.put("/ciclos/{ciclo_id}", response_model=CicloResponse)
 def update_ciclo(
     ciclo_id: int,
@@ -116,6 +125,7 @@ def update_ciclo(
     
     return ciclo
 
+# Elimina ciclo
 @router.delete("/ciclos/{ciclo_id}")
 def delete_ciclo(
     ciclo_id: int,
@@ -157,6 +167,7 @@ def delete_ciclo(
 
 # ==================== CURSOS ====================
 
+# Obtiene cursos
 @router.get("/cursos", response_model=CursoListResponse)
 def get_cursos(
     ciclo_id: Optional[int] = Query(None),
@@ -164,7 +175,7 @@ def get_cursos(
     is_active: Optional[bool] = Query(None),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=100),
+    per_page: int = Query(1000, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
     """Obtener lista de cursos con paginación y filtros"""
@@ -188,16 +199,14 @@ def get_cursos(
     if ciclo_id:
         query = query.filter(Curso.ciclo_id == ciclo_id)
     
-    # Removed docente_id filter since Curso model no longer has docente_id
+    if docente_id:
+        query = query.filter(Curso.docente_id == docente_id)
     
     if is_active is not None:
         query = query.filter(Curso.is_active == is_active)
     
     if search:
-        search_filter = or_(
-            Curso.nombre.ilike(f"%{search}%"),
-            Curso.codigo.ilike(f"%{search}%")
-        )
+        search_filter = Curso.nombre.ilike(f"%{search}%")
         query = query.filter(search_filter)
     
     # Contar total de registros
@@ -232,52 +241,13 @@ def get_cursos(
         "pages": (total + per_page - 1) // per_page
     }
 
-@router.get("/cursos/{curso_id}", response_model=CursoResponse)
-def get_curso(
-    curso_id: int,
-    db: Session = Depends(get_db)
-):
-    """Obtener un curso específico por ID"""
-    
-    curso = db.query(Curso).options(
-        joinedload(Curso.ciclo).joinedload(Ciclo.carrera)
-    ).filter(Curso.id == curso_id).first()
-    
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado"
-        )
-    
-    # Agregar información adicional
-    if curso.ciclo:
-        curso.ciclo_nombre = curso.ciclo.nombre
-    
-    # Removed docente references since Curso model no longer has docente relationship
-    
-    # Fix matricula count - matriculas are now directly related to ciclos, not cursos
-    curso.total_matriculados = db.query(Matricula).filter(
-        Matricula.ciclo_id == curso.ciclo_id,
-        Matricula.is_active == True
-    ).count()
-    
-    return curso
-
+# Crea curso
 @router.post("/cursos", response_model=CursoResponse)
 def create_curso(
     curso_data: CursoCreate,
     db: Session = Depends(get_db)
 ):
     """Crear un nuevo curso"""
-    
-    # Verificar que no exista un curso con el mismo código
-    existing_curso = db.query(Curso).filter(Curso.codigo == curso_data.codigo).first()
-    
-    if existing_curso:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un curso con este código"
-        )
     
     # Verificar que el ciclo existe
     ciclo = db.query(Ciclo).filter(
@@ -299,6 +269,7 @@ def create_curso(
     
     return new_curso
 
+# Actualiza curso
 @router.put("/cursos/{curso_id}", response_model=CursoResponse)
 def update_curso(
     curso_id: int,
@@ -314,19 +285,6 @@ def update_curso(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Curso no encontrado"
         )
-    
-    # Verificar código único si se está cambiando
-    if curso_data.codigo and curso_data.codigo != curso.codigo:
-        existing_curso = db.query(Curso).filter(
-            Curso.codigo == curso_data.codigo,
-            Curso.id != curso_id
-        ).first()
-        
-        if existing_curso:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Ya existe un curso con este código"
-            )
     
     # Verificar ciclo si se está cambiando
     if curso_data.ciclo_id and curso_data.ciclo_id != curso.ciclo_id:
@@ -350,6 +308,7 @@ def update_curso(
     
     return curso
 
+# Elimina curso
 @router.delete("/cursos/{curso_id}")
 def delete_curso(
     curso_id: int,
@@ -373,61 +332,3 @@ def delete_curso(
     db.commit()
     
     return {"message": "Curso eliminado definitivamente"}
-
-@router.put("/cursos/{curso_id}/asignar-docente")
-def asignar_docente_curso(
-    curso_id: int,
-    docente_id: int,
-    db: Session = Depends(get_db)
-):
-    """Asignar un docente a un curso"""
-    
-    # Verificar que el curso existe
-    curso = db.query(Curso).filter(Curso.id == curso_id).first()
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado"
-        )
-    
-    # Verificar que el docente existe y tiene el rol correcto
-    docente = db.query(User).filter(
-        User.id == docente_id,
-        User.role == RoleEnum.DOCENTE,
-        User.is_active == True
-    ).first()
-    
-    if not docente:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Docente no encontrado o no activo"
-        )
-    
-    # Asignar el docente al curso
-    curso.docente_id = docente_id
-    db.commit()
-    db.refresh(curso)
-    
-    return {"message": "Docente asignado correctamente al curso"}
-
-@router.delete("/cursos/{curso_id}/desasignar-docente")
-def desasignar_docente_curso(
-    curso_id: int,
-    db: Session = Depends(get_db)
-):
-    """Desasignar el docente de un curso"""
-    
-    # Verificar que el curso existe
-    curso = db.query(Curso).filter(Curso.id == curso_id).first()
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado"
-        )
-    
-    # Desasignar el docente
-    curso.docente_id = None
-    db.commit()
-    db.refresh(curso)
-    
-    return {"message": "Docente desasignado correctamente del curso"}
