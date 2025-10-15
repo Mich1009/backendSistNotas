@@ -183,6 +183,11 @@ class CursoResponse(BaseModel):
     docente_nombre: Optional[str] = None
     total_matriculados: Optional[int] = None
     
+    # Información del ciclo - fechas
+    ciclo_fecha_inicio: Optional[datetime] = None
+    ciclo_fecha_fin: Optional[datetime] = None
+    ciclo_año: Optional[int] = None
+    
     class Config:
         from_attributes = True
 
@@ -323,3 +328,11 @@ class ResultadoOperacionMasiva(BaseModel):
 # Schema para asignación de cursos a docentes
 class CursoAssignment(BaseModel):
     curso_id: int
+
+class DocenteCursosResponse(BaseModel):
+    docente: UserResponse
+    cursos: List[CursoResponse]
+    total_cursos: int
+    
+    class Config:
+        from_attributes = True

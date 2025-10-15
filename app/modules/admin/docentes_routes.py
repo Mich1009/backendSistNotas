@@ -7,8 +7,8 @@ from datetime import datetime
 from ...database import get_db
 from ..auth.dependencies import get_admin_user
 from ..auth.security import get_password_hash
-from ...shared.models import User, RoleEnum, Curso
-from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, CursoResponse, CursoAssignment
+from ...shared.models import User, RoleEnum, Curso, Ciclo
+from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, CursoResponse, CursoAssignment, DocenteCursosResponse
 
 router = APIRouter(prefix="/docentes", tags=["Admin - Docentes"])
 
@@ -197,10 +197,11 @@ def delete_docente(
     
     return {"message": "Docente eliminado definitivamente"}
 
-@router.get("/{docente_id}/cursos", response_model=List[CursoResponse])
+@router.get("/{docente_id}/cursos", response_model=DocenteCursosResponse)
 async def get_docente_cursos(
     docente_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)  # Restaurar autenticación
 ):
     """Obtener los cursos asignados a un docente"""
     
@@ -217,16 +218,36 @@ async def get_docente_cursos(
     
     cursos = db.query(Curso).options(
         joinedload(Curso.ciclo),
-        joinedload(Curso.ciclo).joinedload("carrera")
+        joinedload(Curso.ciclo).joinedload(Ciclo.carrera)
     ).filter(
         Curso.docente_id == docente_id,
         Curso.is_active == True
     ).all()
     
+    # Formatear los cursos con información del ciclo
+    cursos_formateados = []
+    for curso in cursos:
+        curso_data = {
+            "id": curso.id,
+            "nombre": curso.nombre,
+            "descripcion": curso.descripcion,
+            "ciclo_id": curso.ciclo_id,
+            "docente_id": curso.docente_id,
+            "is_active": curso.is_active,
+            "created_at": curso.created_at,
+            "updated_at": curso.updated_at,
+            "ciclo_nombre": curso.ciclo.nombre if curso.ciclo else None,
+            "ciclo_fecha_inicio": curso.ciclo.fecha_inicio if curso.ciclo else None,
+            "ciclo_fecha_fin": curso.ciclo.fecha_fin if curso.ciclo else None,
+            "ciclo_año": curso.ciclo.año if curso.ciclo else None,
+            "total_matriculados": 0  # Se puede calcular si es necesario
+        }
+        cursos_formateados.append(curso_data)
+    
     return {
         "docente": docente,
-        "cursos": cursos,
-        "total_cursos": len(cursos)
+        "cursos": cursos_formateados,
+        "total_cursos": len(cursos_formateados)
     }
 
 @router.post("/{docente_id}/assign-curso", response_model=dict)
