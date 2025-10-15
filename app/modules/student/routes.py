@@ -46,9 +46,6 @@ def get_student_dashboard(
         curso_data = {
             "id": curso.id,
             "nombre": curso.nombre,
-            "codigo": curso.codigo,
-            "creditos": curso.creditos,
-            "horas_semanales": getattr(curso, 'horas_semanales', 0),
             "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
             "ciclo_nombre": curso.ciclo.nombre
         }
@@ -67,7 +64,6 @@ def get_student_dashboard(
         nota_data = {
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
-            "curso_codigo": nota.curso.codigo,
             "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
             "tipo_evaluacion": nota.tipo_evaluacion,
             "valor_nota": float(nota.valor_nota),
@@ -101,11 +97,11 @@ def get_student_dashboard(
     if promedios_por_curso:
         promedio_general = sum(promedios_por_curso) / len(promedios_por_curso)
     
-    # Calcular créditos completados
-    creditos_completados = sum(
-        curso.creditos for curso in cursos_actuales 
+    # Calcular créditos completados (sin campo creditos, usar conteo de cursos)
+    creditos_completados = len([
+        curso for curso in cursos_actuales 
         if any(promedio >= 10.5 for promedio in promedios_por_curso)
-    )
+    ])
     
     estadisticas = {
         "total_cursos": total_cursos,
@@ -163,9 +159,6 @@ def get_student_courses(
             curso_data = {
                 "id": curso.id,
                 "nombre": curso.nombre,
-                "codigo": curso.codigo,
-                "creditos": curso.creditos,
-                "horas_semanales": getattr(curso, 'horas_semanales', 0),
                 "horario": getattr(curso, 'horario', None),
                 "aula": getattr(curso, 'aula', None),
                 "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
@@ -208,7 +201,6 @@ def get_student_grades(
             nota_data = {
                 "id": nota.id,
                 "curso_nombre": nota.curso.nombre,
-                "curso_codigo": nota.curso.codigo,
                 "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
                 "tipo_evaluacion": nota.tipo_evaluacion,
                 "valor_nota": float(nota.valor_nota),
@@ -254,7 +246,6 @@ def get_student_grade_by_course(
         nota_data = {
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
-            "curso_codigo": nota.curso.codigo,
             "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
             "tipo_evaluacion": nota.tipo_evaluacion,
             "valor_nota": float(nota.valor_nota),
@@ -374,7 +365,6 @@ def get_student_final_grades(
         resultados.append({
             "curso_id": curso.id,
             "curso_nombre": curso.nombre,
-            "curso_codigo": curso.codigo,
             "promedio_final": resultado["promedio_final"],
             "estado": resultado["estado"],
             "detalle": resultado["detalle"]
@@ -418,7 +408,6 @@ def get_student_final_grade_by_course(
     return {
         "curso_id": curso_id,
         "curso_nombre": curso.nombre,
-        "curso_codigo": curso.codigo,
         "promedio_final": resultado["promedio_final"],
         "estado": resultado["estado"],
         "detalle": resultado["detalle"]
@@ -470,7 +459,6 @@ def get_student_grades_by_type(
         nota_data = {
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
-            "curso_codigo": nota.curso.codigo,
             "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
             "tipo_evaluacion": nota.tipo_evaluacion,
             "valor_nota": float(nota.valor_nota),
@@ -494,7 +482,6 @@ def get_student_grades_by_type(
     return {
         "curso_id": curso_id,
         "curso_nombre": curso.nombre,
-        "curso_codigo": curso.codigo,
         "notas_semanales": notas_semanales,
         "notas_practicas": notas_practicas,
         "notas_parciales": notas_parciales,

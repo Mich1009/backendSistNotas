@@ -182,15 +182,13 @@ class Nota(Base):
     historial = relationship("HistorialNota", back_populates="nota")
     
     def __repr__(self):
-        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, nota_final={self.nota_final})>"
+        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, nota={self.nota})>"
 
 class HistorialNota(Base):
     __tablename__ = "historial_notas"
     
     id = Column(Integer, primary_key=True, index=True)
     nota_id = Column(Integer, ForeignKey("notas.id"), nullable=False)
-    estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
     nota_anterior = Column(Numeric(4, 2), nullable=True)
     nota_nueva = Column(Numeric(4, 2), nullable=False)
     motivo_cambio = Column(String(255), nullable=False)

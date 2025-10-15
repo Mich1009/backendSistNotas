@@ -160,7 +160,6 @@ def get_rendimiento_por_curso(
     query = db.query(
         Curso.id,
         Curso.nombre,
-        Curso.codigo,
         Ciclo.nombre.label('ciclo_nombre'),
         func.avg(Nota.nota).label('promedio'),
         func.count(func.distinct(Nota.estudiante_id)).label('total_estudiantes'),
@@ -177,7 +176,7 @@ def get_rendimiento_por_curso(
         query = query.filter(Ciclo.id == ciclo_id)
     
     resultados = query.group_by(
-        Curso.id, Curso.nombre, Curso.codigo, Ciclo.nombre
+        Curso.id, Curso.nombre, Ciclo.nombre
     ).order_by(desc(func.avg(Nota.nota))).all()
     
     datos_cursos = []
@@ -185,7 +184,6 @@ def get_rendimiento_por_curso(
         datos_cursos.append({
             "curso_id": resultado.id,
             "nombre": resultado.nombre,
-            "codigo": resultado.codigo,
             "ciclo": resultado.ciclo_nombre,
             "promedio": round(resultado.promedio, 2),
             "total_estudiantes": resultado.total_estudiantes,
@@ -357,7 +355,6 @@ def exportar_notas_excel(
         User.first_name,
         User.last_name,
         Curso.nombre.label('curso'),
-        Curso.codigo.label('codigo_curso'),
         Ciclo.nombre.label('ciclo'),
         Carrera.nombre.label('carrera'),
         Nota.nota,
@@ -393,7 +390,6 @@ def exportar_notas_excel(
             "Carrera": nota.carrera,
             "Ciclo": nota.ciclo,
             "Curso": nota.curso,
-            "Código Curso": nota.codigo_curso,
             "Nota": nota.nota,
             "Fecha Registro": nota.fecha_registro
         })

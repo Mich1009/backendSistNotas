@@ -132,14 +132,12 @@ def get_teacher_dashboard(
         curso_data = {
             "id": curso.id,
             "nombre": curso.nombre,
-            "codigo": curso.codigo,
-            "creditos": curso.creditos,
-            "horas_semanales": curso.horas_semanales,
             "ciclo_id": curso.ciclo_id,
             "docente_id": curso.docente_id,
             "is_active": curso.is_active,
             "created_at": curso.created_at,
             "ciclo_nombre": curso.ciclo.nombre,
+            "ciclo_año": curso.ciclo.año,
             "total_estudiantes": estudiantes_count
         }
         cursos_response.append(curso_data)
@@ -251,14 +249,12 @@ def get_teacher_courses(
         curso_data = {
             "id": curso.id,
             "nombre": curso.nombre,
-            "codigo": curso.codigo,
-            "creditos": curso.creditos,
-            "horas_semanales": curso.horas_semanales,
             "ciclo_id": curso.ciclo_id,
             "docente_id": curso.docente_id,
             "is_active": curso.is_active,
             "created_at": curso.created_at,
             "ciclo_nombre": curso.ciclo.nombre,
+            "ciclo_año": curso.ciclo.año,
             "total_estudiantes": estudiantes_count
         }
         cursos_response.append(curso_data)
@@ -296,9 +292,6 @@ def get_teacher_course(
     return {
         "id": curso.id,
         "nombre": curso.nombre,
-        "codigo": curso.codigo,
-        "creditos": curso.creditos,
-        "horas_semanales": curso.horas_semanales,
         "ciclo_id": curso.ciclo_id,
         "docente_id": curso.docente_id,
         "is_active": curso.is_active,
@@ -800,9 +793,6 @@ def update_course(
     return {
         "id": curso.id,
         "nombre": curso.nombre,
-        "codigo": curso.codigo,
-        "creditos": curso.creditos,
-        "horas_semanales": curso.horas_semanales,
         "ciclo_id": curso.ciclo_id,
         "docente_id": curso.docente_id,
         "is_active": curso.is_active,

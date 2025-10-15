@@ -37,9 +37,6 @@ class CicloResponse(CicloBase):
 # Schemas para Curso
 class CursoBase(BaseModel):
     nombre: str
-    codigo: str
-    creditos: int
-    horas_semanales: int
     horario: Optional[str] = None
     aula: Optional[str] = None
     max_estudiantes: int = 30
@@ -63,9 +60,6 @@ class CursoEstudianteResponse(BaseModel):
     """Información del curso desde la perspectiva del estudiante"""
     id: int
     nombre: str
-    codigo: str
-    creditos: int
-    horas_semanales: int
     docente_nombre: str
     ciclo_nombre: str
     
@@ -112,7 +106,6 @@ class PromedioFinalEstudianteResponse(BaseModel):
     """Promedio final del estudiante en un curso"""
     curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
     curso_nombre: str
-    curso_codigo: str
     promedio_final: Decimal
     estado: str  # APROBADO, DESAPROBADO, SIN_NOTAS
     detalle: dict
@@ -124,7 +117,6 @@ class NotasPorTipoResponse(BaseModel):
     """Notas agrupadas por tipo de evaluación"""
     curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
     curso_nombre: str
-    curso_codigo: str
     notas_semanales: List[NotaEstudianteResponse]
     notas_practicas: List[NotaEstudianteResponse]
     notas_parciales: List[NotaEstudianteResponse]

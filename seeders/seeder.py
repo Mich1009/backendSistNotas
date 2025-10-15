@@ -837,9 +837,6 @@ def import_courses_from_excel(sheet_name: str = "cursos"):
 
                 # Generar código único para el curso
                 # Formato: DS-I-001, DS-II-002, etc.
-                curso_count = db.query(Curso).filter(Curso.ciclo_id == ciclo.id).count()
-                codigo_curso = f"DS-{ciclo_romano}-{str(curso_count + 1).zfill(3)}"
-                
                 # Verificar si ya existe el curso
                 existing_curso = db.query(Curso).filter(
                     Curso.nombre == nombre_curso,
@@ -854,10 +851,7 @@ def import_courses_from_excel(sheet_name: str = "cursos"):
                 # Crear el curso
                 new_curso = Curso(
                     nombre=nombre_curso,
-                    codigo=codigo_curso,
                     descripcion=f"Curso del ciclo {ciclo_romano} - {año}",
-                    creditos=3,  # Valor por defecto
-                    horas_semanales=4,  # Valor por defecto
                     ciclo_id=ciclo.id,
                     docente_id=docente.id if docente else None,
                     is_active=True

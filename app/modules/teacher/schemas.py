@@ -25,9 +25,6 @@ class PasswordUpdate(BaseModel):
 # Schemas para gestión de cursos del docente
 class CursoDocenteBase(BaseModel):
     nombre: str
-    codigo: str
-    creditos: int = Field(..., ge=1, le=10, description="Créditos del curso (1-10)")
-    horas_semanales: Optional[int] = None
     horario: Optional[str] = None
     aula: Optional[str] = None
     max_estudiantes: int = Field(30, ge=5, le=50, description="Máximo de estudiantes (5-50)")
@@ -42,14 +39,12 @@ class CursoDocenteUpdate(BaseModel):
 class CursoDocenteResponse(BaseModel):
     id: int
     nombre: str
-    codigo: str
-    creditos: int
-    horas_semanales:Optional[int]= None  # este campo no existe no se porque lo pusiseron
     ciclo_id: int
     docente_id: int
     is_active: bool
     created_at: datetime
     ciclo_nombre: Optional[str] = None
+    ciclo_año: Optional[int] = None
     total_estudiantes: Optional[int] = None
     
     class Config:
