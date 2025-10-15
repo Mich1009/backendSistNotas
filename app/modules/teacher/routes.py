@@ -121,9 +121,9 @@ def get_teacher_dashboard(
     total_estudiantes = 0
     
     for curso in cursos:
-        # Contar estudiantes matriculados
+        # Contar estudiantes matriculados en el ciclo del curso
         estudiantes_count = db.query(Matricula).filter(
-            Matricula.curso_id == curso.id,
+            Matricula.ciclo_id == curso.ciclo_id,
             Matricula.is_active == True
         ).count()
         
@@ -242,9 +242,9 @@ def get_teacher_courses(
     # Convertir a formato de respuesta con información adicional
     cursos_response = []
     for curso in cursos:
-        # Contar estudiantes matriculados en el curso específico
+        # Contar estudiantes matriculados en el ciclo del curso
         estudiantes_count = db.query(Matricula).filter(
-            Matricula.curso_id == curso.id,
+            Matricula.ciclo_id == curso.ciclo_id,
             Matricula.is_active == True
         ).count()
         
@@ -287,9 +287,9 @@ def get_teacher_course(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Contar estudiantes matriculados
+    # Contar estudiantes matriculados en el ciclo del curso
     estudiantes_count = db.query(Matricula).filter(
-        Matricula.curso_id == curso.id,
+        Matricula.ciclo_id == curso.ciclo_id,
         Matricula.is_active == True
     ).count()
     
@@ -328,13 +328,13 @@ def get_course_students(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Obtener estudiantes matriculados en el curso específico
+    # Obtener estudiantes matriculados en el ciclo del curso
     estudiantes = db.query(
         User, Matricula.fecha_matricula
     ).join(
         Matricula, User.id == Matricula.estudiante_id
     ).filter(
-        Matricula.curso_id == curso_id,
+        Matricula.ciclo_id == curso.ciclo_id,
         Matricula.is_active == True,
         User.role == RoleEnum.ESTUDIANTE
     ).all()
@@ -420,18 +420,18 @@ def get_course_students_with_grades(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Obtener estudiantes matriculados en el curso
+    # Obtener estudiantes matriculados en el ciclo del curso
     estudiantes = db.query(User).join(
         Matricula, User.id == Matricula.estudiante_id
     ).filter(
-        Matricula.curso_id == curso_id,
+        Matricula.ciclo_id == curso.ciclo_id,
         Matricula.is_active == True,
         User.role == RoleEnum.ESTUDIANTE
     ).order_by(User.last_name, User.first_name).all()
     
     # Obtener matrículas para las fechas
     matriculas = db.query(Matricula).filter(
-        Matricula.curso_id == curso_id,
+        Matricula.ciclo_id == curso.ciclo_id,
         Matricula.is_active == True
     ).all()
     
@@ -493,17 +493,17 @@ def create_grade(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Verificar que el estudiante está matriculado en el curso específico
+    # Verificar que el estudiante está matriculado en el ciclo del curso
     matricula = db.query(Matricula).filter(
         Matricula.estudiante_id == nota_data.estudiante_id,
-        Matricula.curso_id == nota_data.curso_id,
+        Matricula.ciclo_id == curso.ciclo_id,
         Matricula.is_active == True
     ).first()
     
     if not matricula:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="El estudiante no está matriculado en este curso"
+            detail="El estudiante no está matriculado en este ciclo"
         )
     
     # Obtener el peso según el tipo de evaluación

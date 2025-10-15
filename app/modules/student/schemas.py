@@ -74,7 +74,6 @@ class CursoEstudianteResponse(BaseModel):
 
 # Schemas para Matrícula
 class MatriculaBase(BaseModel):
-    curso_id: int
     ciclo_id: int
 
 class MatriculaCreate(MatriculaBase):
@@ -87,7 +86,6 @@ class MatriculaResponse(MatriculaBase):
     is_active: bool
     
     # Información relacionada
-    curso: Optional[CursoResponse] = None
     ciclo: Optional[CicloResponse] = None
     
     class Config:
@@ -112,7 +110,7 @@ class NotaEstudianteResponse(BaseModel):
 
 class PromedioFinalEstudianteResponse(BaseModel):
     """Promedio final del estudiante en un curso"""
-    curso_id: int
+    curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
     curso_nombre: str
     curso_codigo: str
     promedio_final: Decimal
@@ -124,7 +122,7 @@ class PromedioFinalEstudianteResponse(BaseModel):
 
 class NotasPorTipoResponse(BaseModel):
     """Notas agrupadas por tipo de evaluación"""
-    curso_id: int
+    curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
     curso_nombre: str
     curso_codigo: str
     notas_semanales: List[NotaEstudianteResponse]
