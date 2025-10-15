@@ -82,7 +82,12 @@ class NotaResponse(BaseModel):
 
 class EstudianteConNota(EstudianteEnCurso):
     """Estudiante con sus notas en el curso"""
-    notas: Optional[List[dict]] = None  # Lista de todas las notas del estudiante
+    nota1: Optional[Decimal] = None
+    nota2: Optional[Decimal] = None
+    nota3: Optional[Decimal] = None
+    nota4: Optional[Decimal] = None
+    promedio: Optional[Decimal] = None
+    observaciones: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -91,38 +96,36 @@ class EstudianteConNota(EstudianteEnCurso):
 class NotaCreate(BaseModel):
     estudiante_id: int
     curso_id: int
-    tipo_evaluacion: str = Field(..., description="Tipo de evaluación: SEMANAL, PRACTICA, PARCIAL")
-    valor_nota: Decimal = Field(..., ge=0, le=20, description="Valor de la nota (0-20)")
-    fecha_evaluacion: str = Field(..., description="Fecha de evaluación (YYYY-MM-DD)")
+    nota1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
+    nota2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
+    nota3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
+    nota4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
     observaciones: Optional[str] = None
-    
-    @validator('tipo_evaluacion')
-    def validate_tipo_evaluacion(cls, v):
-        tipos_validos = ['SEMANAL', 'PRACTICA', 'PARCIAL']
-        if v not in tipos_validos:
-            raise ValueError(f'Tipo de evaluación debe ser uno de: {tipos_validos}')
-        return v
 
 class NotaUpdate(BaseModel):
-    valor_nota: Optional[Decimal] = Field(None, ge=0, le=20, description="Valor de la nota (0-20)")
-    fecha_evaluacion: Optional[str] = Field(None, description="Fecha de evaluación (YYYY-MM-DD)")
+    nota1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
+    nota2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
+    nota3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
+    nota4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
     observaciones: Optional[str] = None
 
 class NotaDocenteResponse(BaseModel):
     id: int
     estudiante_id: int
     curso_id: int
-    tipo_evaluacion: str
-    valor_nota: Decimal
-    peso: Decimal
-    fecha_evaluacion: str
+    nota1: Optional[Decimal] = None  # ← nota1
+    nota2: Optional[Decimal] = None  # ← nota2
+    nota3: Optional[Decimal] = None  # ← nota3
+    nota4: Optional[Decimal] = None  # ← nota4
+    nota_final: Optional[Decimal] = None  # ← Agregar nota_final
+    estado: Optional[str] = None  # ← Agregar estado
     observaciones: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
     # Información del estudiante
-    estudiante_nombre: str
-    curso_nombre: str
+    estudiante_nombre: str  # ← Cambiar nombre para coincidir con tu código
+    curso_nombre: str  # ← Agregar curso_nombre
     
     class Config:
         from_attributes = True
@@ -130,21 +133,14 @@ class NotaDocenteResponse(BaseModel):
 # Schemas para actualización masiva de notas
 class NotaMasiva(BaseModel):
     estudiante_id: int
-    tipo_evaluacion: str = Field(..., description="Tipo de evaluación: SEMANAL, PRACTICA, PARCIAL")
-    valor_nota: Decimal = Field(..., ge=0, le=20, description="Valor de la nota (0-20)")
-    fecha_evaluacion: str = Field(..., description="Fecha de evaluación (YYYY-MM-DD)")
+    nota1: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota1
+    nota2: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota2
+    nota3: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota3
+    nota4: Optional[Decimal] = Field(None, ge=0, le=20)  # ← nota4
     observaciones: Optional[str] = None
-    
-    @validator('tipo_evaluacion')
-    def validate_tipo_evaluacion(cls, v):
-        tipos_validos = ['SEMANAL', 'PRACTICA', 'PARCIAL']
-        if v not in tipos_validos:
-            raise ValueError(f'Tipo de evaluación debe ser uno de: {tipos_validos}')
-        return v
 
 class ActualizacionMasivaNotas(BaseModel):
-    curso_id: int
-    notas: List[NotaMasiva]
+    notas: List[NotaMasiva]  # ← Remover curso_id de aquí
     
     @validator('notas')
     def validate_notas(cls, v):
@@ -153,28 +149,6 @@ class ActualizacionMasivaNotas(BaseModel):
         if len(v) > 50:  # Límite de seguridad
             raise ValueError('No se pueden actualizar más de 50 notas a la vez')
         return v
-
-# Schemas para cálculos de promedios
-class PromedioFinalResponse(BaseModel):
-    estudiante_id: int
-    curso_id: int
-    promedio_final: Decimal
-    estado: str  # APROBADO, DESAPROBADO, SIN_NOTAS
-    detalle: dict
-    
-    class Config:
-        from_attributes = True
-
-class EstructuraNotasResponse(BaseModel):
-    estudiante_id: int
-    curso_id: int
-    notas_semanales: dict
-    notas_practicas: dict
-    notas_parciales: dict
-    estructura_completa: bool
-    
-    class Config:
-        from_attributes = True
 
 # Schemas para dashboard del docente
 class DocenteDashboard(BaseModel):

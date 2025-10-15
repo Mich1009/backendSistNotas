@@ -14,8 +14,7 @@ from .schemas import (
     CursoDocenteResponse, EstudianteEnCurso, EstudianteConNota,
     NotaCreate, NotaUpdate, NotaDocenteResponse, ActualizacionMasivaNotas,
     DocenteDashboard, EstadisticasDocente, ReporteCurso, EstadisticasCurso,
-    CursoDocenteUpdate, DocenteProfileUpdate, PasswordUpdate, NotaResponse,
-    PromedioFinalResponse, EstructuraNotasResponse
+    CursoDocenteUpdate, DocenteProfileUpdate, PasswordUpdate, NotaResponse
 )
 
 router = APIRouter(prefix="/teacher", tags=["Docente"])
@@ -242,9 +241,9 @@ def get_teacher_courses(
     # Convertir a formato de respuesta con información adicional
     cursos_response = []
     for curso in cursos:
-        # Contar estudiantes matriculados en el curso específico
+        # Contar estudiantes matriculados
         estudiantes_count = db.query(Matricula).filter(
-            Matricula.curso_id == curso.id,
+            Matricula.ciclo_id == curso.ciclo_id,
             Matricula.is_active == True
         ).count()
         
@@ -278,6 +277,7 @@ def get_teacher_course(
         Curso.docente_id == current_user.id,
         Curso.is_active == True
     ).options(
+        joinedload(Curso.carrera),
         joinedload(Curso.ciclo)
     ).first()
     
@@ -328,13 +328,13 @@ def get_course_students(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Obtener estudiantes matriculados en el curso específico
+    # Obtener estudiantes matriculados en el ciclo del curso
     estudiantes = db.query(
         User, Matricula.fecha_matricula
     ).join(
         Matricula, User.id == Matricula.estudiante_id
     ).filter(
-        Matricula.curso_id == curso_id,
+        Matricula.ciclo_id == curso.ciclo_id,  # <--- Aquí está el cambio
         Matricula.is_active == True,
         User.role == RoleEnum.ESTUDIANTE
     ).all()
@@ -420,53 +420,38 @@ def get_course_students_with_grades(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Obtener estudiantes matriculados en el curso
-    estudiantes = db.query(User).join(
+    # Obtener estudiantes con sus notas
+    estudiantes_con_notas = db.query(
+        User, Matricula.fecha_matricula, Nota
+    ).join(
         Matricula, User.id == Matricula.estudiante_id
+    ).outerjoin(
+        Nota, and_(Nota.estudiante_id == User.id, Nota.curso_id == curso_id)
     ).filter(
         Matricula.curso_id == curso_id,
         Matricula.is_active == True,
         User.role == RoleEnum.ESTUDIANTE
     ).order_by(User.last_name, User.first_name).all()
     
-    # Obtener matrículas para las fechas
-    matriculas = db.query(Matricula).filter(
-        Matricula.curso_id == curso_id,
-        Matricula.is_active == True
-    ).all()
-    
-    matricula_dict = {m.estudiante_id: m.fecha_matricula for m in matriculas}
-    
     # Convertir a formato de respuesta
     estudiantes_response = []
-    for estudiante in estudiantes:
-        # Obtener todas las notas del estudiante en este curso
-        notas = db.query(Nota).filter(
-            Nota.estudiante_id == estudiante.id,
-            Nota.curso_id == curso_id
-        ).order_by(Nota.fecha_evaluacion).all()
-        
-        # Convertir notas a formato de diccionario
-        notas_data = []
-        for nota in notas:
-            notas_data.append({
-                "id": nota.id,
-                "tipo_evaluacion": nota.tipo_evaluacion,
-                "valor_nota": float(nota.valor_nota),
-                "peso": float(nota.peso),
-                "fecha_evaluacion": nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-                "observaciones": nota.observaciones,
-                "created_at": nota.created_at
-            })
-        
+    for user, fecha_matricula, nota in estudiantes_con_notas:
         estudiante_data = {
-            "id": estudiante.id,
-            "dni": estudiante.dni,
-            "first_name": estudiante.first_name,
-            "last_name": estudiante.last_name,
-            "email": estudiante.email,
-            "fecha_matricula": matricula_dict.get(estudiante.id),
-            "notas": notas_data
+            "id": user.id,
+            "dni": user.dni,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "fecha_matricula": fecha_matricula,
+            "nota": {
+                "id": nota.id if nota else None,
+                "nota1": nota.nota_1 if nota else None,
+                "nota2": nota.nota_2 if nota else None,
+                "nota3": nota.nota_3 if nota else None,
+                "nota4": nota.nota_4 if nota else None,
+                "nota_final": nota.nota_final if nota else None,
+                "estado": nota.estado if nota else None
+            } if nota else None
         }
         estudiantes_response.append(estudiante_data)
     
@@ -493,36 +478,61 @@ def create_grade(
             detail="Curso no encontrado o no tienes permisos para acceder"
         )
     
-    # Verificar que el estudiante está matriculado en el curso específico
+    # Verificar que el estudiante está matriculado en el curso
     matricula = db.query(Matricula).filter(
         Matricula.estudiante_id == nota_data.estudiante_id,
-        Matricula.curso_id == nota_data.curso_id,
+        Matricula.ciclo_id == curso.ciclo_id,  # Validación por ciclo
         Matricula.is_active == True
     ).first()
     
     if not matricula:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail="El estudiante no está matriculado en el ciclo de este curso"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="El estudiante no está matriculado en este curso"
         )
     
-    # Obtener el peso según el tipo de evaluación
-    from app.shared.grade_calculator import GradeCalculator
-    peso = GradeCalculator.obtener_peso_por_tipo(nota_data.tipo_evaluacion)
+    # Verificar si ya existe una nota para este estudiante en este curso
+    existing_nota = db.query(Nota).filter(
+        Nota.estudiante_id == nota_data.estudiante_id,
+        Nota.curso_id == nota_data.curso_id
+    ).first()
     
-    # Convertir fecha de string a date
-    from datetime import datetime
-    fecha_evaluacion = datetime.strptime(nota_data.fecha_evaluacion, "%Y-%m-%d").date()
+    if existing_nota:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ya existe una nota para este estudiante en este curso. Use el endpoint de actualización."
+        )
+    
+    # Calcular nota final
+    notas = [
+        nota_data.nota1 if nota_data.nota1 is not None else Decimal('0'),
+        nota_data.nota2 if nota_data.nota2 is not None else Decimal('0'),
+        nota_data.nota3 if nota_data.nota3 is not None else Decimal('0'),
+        nota_data.nota4 if nota_data.nota4 is not None else Decimal('0')
+    ]
+    
+    # Calcular promedio solo de las notas que no son cero
+    notas_validas = [nota for nota in notas if nota > Decimal('0')]
+    nota_final = sum(notas_validas) / len(notas_validas) if notas_validas else Decimal('0')
+    nota_final = round(nota_final, 2)
+    
+    # Determinar estado
+    estado = "APROBADO" if nota_final >= Decimal('10.5') else "DESAPROBADO"
     
     # Crear nueva nota
     new_nota = Nota(
         estudiante_id=nota_data.estudiante_id,
         curso_id=nota_data.curso_id,
-        tipo_evaluacion=nota_data.tipo_evaluacion,
-        valor_nota=nota_data.valor_nota,
-        peso=peso,
-        fecha_evaluacion=fecha_evaluacion,
-        observaciones=nota_data.observaciones
+        nota1=nota_data.nota1,
+        nota2=nota_data.nota2,
+        nota3=nota_data.nota3,
+        nota4=nota_data.nota4,
+        nota_final=nota_final,
+        estado=estado
     )
     
     db.add(new_nota)
@@ -535,7 +545,7 @@ def create_grade(
         estudiante_id=nota_data.estudiante_id,
         curso_id=nota_data.curso_id,
         nota_anterior=None,
-        nota_nueva=nota_data.valor_nota,
+        nota_nueva=nota_final,
         modificado_por=current_user.id
     )
     
@@ -551,13 +561,13 @@ def create_grade(
         "estudiante_nombre": f"{estudiante.first_name} {estudiante.last_name}",
         "curso_id": new_nota.curso_id,
         "curso_nombre": curso.nombre,
-        "tipo_evaluacion": new_nota.tipo_evaluacion,
-        "valor_nota": new_nota.valor_nota,
-        "peso": new_nota.peso,
-        "fecha_evaluacion": new_nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-        "observaciones": new_nota.observaciones,
-        "created_at": new_nota.created_at,
-        "updated_at": new_nota.updated_at
+        "nota1": new_nota.nota1,
+        "nota2": new_nota.nota2,
+        "nota3": new_nota.nota3,
+        "nota4": new_nota.nota4,
+        "nota_final": new_nota.nota_final,
+        "estado": new_nota.estado,
+        "created_at": new_nota.created_at
     }
 
 @router.put("/grades/{nota_id}", response_model=NotaDocenteResponse)
@@ -591,31 +601,48 @@ def update_grade(
             detail="No tienes permisos para modificar esta nota"
         )
     
-    # Guardar valor anterior para el historial
-    valor_anterior = nota.valor_nota
+    # Guardar nota final anterior para el historial
+    nota_anterior = nota.nota_final
     
     # Actualizar campos
-    if nota_data.valor_nota is not None:
-        nota.valor_nota = nota_data.valor_nota
+    if nota_data.nota1 is not None:
+        nota.nota1 = nota_data.nota1
+    if nota_data.nota2 is not None:
+        nota.nota2 = nota_data.nota2
+    if nota_data.nota3 is not None:
+        nota.nota3 = nota_data.nota3
+    if nota_data.nota4 is not None:
+        nota.nota4 = nota_data.nota4
     
-    if nota_data.fecha_evaluacion is not None:
-        from datetime import datetime
-        nota.fecha_evaluacion = datetime.strptime(nota_data.fecha_evaluacion, "%Y-%m-%d").date()
+    # Recalcular nota final
+    notas = [
+        nota.nota1 if nota.nota1 is not None else Decimal('0'),
+        nota.nota2 if nota.nota2 is not None else Decimal('0'),
+        nota.nota3 if nota.nota3 is not None else Decimal('0'),
+        nota.nota4 if nota.nota4 is not None else Decimal('0')
+    ]
     
-    if nota_data.observaciones is not None:
-        nota.observaciones = nota_data.observaciones
+    # Calcular promedio solo de las notas que no son cero
+    notas_validas = [n for n in notas if n > Decimal('0')]
+    nota_final = sum(notas_validas) / len(notas_validas) if notas_validas else Decimal('0')
+    nota_final = round(nota_final, 2)
+    
+    nota.nota_final = nota_final
+    
+    # Actualizar estado
+    nota.estado = "APROBADO" if nota_final >= Decimal('10.5') else "DESAPROBADO"
     
     db.commit()
     db.refresh(nota)
     
-    # Registrar en historial si el valor cambió
-    if valor_anterior != nota.valor_nota:
+    # Registrar en historial si la nota final cambió
+    if nota_anterior != nota.nota_final:
         historial = HistorialNota(
             nota_id=nota.id,
             estudiante_id=nota.estudiante_id,
             curso_id=nota.curso_id,
-            nota_anterior=valor_anterior,
-            nota_nueva=nota.valor_nota,
+            nota_anterior=nota_anterior,
+            nota_nueva=nota.nota_final,
             modificado_por=current_user.id
         )
         
@@ -631,13 +658,13 @@ def update_grade(
         "estudiante_nombre": f"{estudiante.first_name} {estudiante.last_name}" if estudiante else "Desconocido",
         "curso_id": nota.curso_id,
         "curso_nombre": curso.nombre,
-        "tipo_evaluacion": nota.tipo_evaluacion,
-        "valor_nota": nota.valor_nota,
-        "peso": nota.peso,
-        "fecha_evaluacion": nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-        "observaciones": nota.observaciones,
-        "created_at": nota.created_at,
-        "updated_at": nota.updated_at
+        "nota1": nota.nota1,
+        "nota2": nota.nota2,
+        "nota3": nota.nota3,
+        "nota4": nota.nota4,
+        "nota_final": nota.nota_final,
+        "estado": nota.estado,
+        "created_at": nota.created_at
     }
 
 @router.post("/courses/{curso_id}/grades/bulk", response_model=dict)
@@ -810,142 +837,3 @@ def update_course(
         "ciclo_nombre": ciclo.nombre if ciclo else None,
         "total_estudiantes": estudiantes_count
     }
-
-# Nuevos endpoints para el sistema de calificaciones mejorado
-
-@router.get("/courses/{curso_id}/students/{estudiante_id}/final-grade", response_model=PromedioFinalResponse)
-def get_student_final_grade(
-    curso_id: int,
-    estudiante_id: int,
-    current_user: User = Depends(get_docente_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener el promedio final de un estudiante en un curso específico"""
-    
-    # Verificar que el curso pertenece al docente
-    curso = db.query(Curso).filter(
-        Curso.id == curso_id,
-        Curso.docente_id == current_user.id,
-        Curso.is_active == True
-    ).first()
-    
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado o no tienes permisos para acceder"
-        )
-    
-    # Verificar que el estudiante está matriculado en el curso
-    matricula = db.query(Matricula).filter(
-        Matricula.estudiante_id == estudiante_id,
-        Matricula.curso_id == curso_id,
-        Matricula.is_active == True
-    ).first()
-    
-    if not matricula:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El estudiante no está matriculado en este curso"
-        )
-    
-    # Calcular promedio final usando GradeCalculator
-    from app.shared.grade_calculator import GradeCalculator
-    resultado = GradeCalculator.calcular_promedio_final(estudiante_id, curso_id, db)
-    
-    return {
-        "estudiante_id": estudiante_id,
-        "curso_id": curso_id,
-        "promedio_final": resultado["promedio_final"],
-        "estado": resultado["estado"],
-        "detalle": resultado["detalle"]
-    }
-
-@router.get("/courses/{curso_id}/students/{estudiante_id}/grade-structure", response_model=EstructuraNotasResponse)
-def get_student_grade_structure(
-    curso_id: int,
-    estudiante_id: int,
-    current_user: User = Depends(get_docente_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener la estructura de notas de un estudiante (validar si tiene todas las notas requeridas)"""
-    
-    # Verificar que el curso pertenece al docente
-    curso = db.query(Curso).filter(
-        Curso.id == curso_id,
-        Curso.docente_id == current_user.id,
-        Curso.is_active == True
-    ).first()
-    
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado o no tienes permisos para acceder"
-        )
-    
-    # Verificar que el estudiante está matriculado en el curso
-    matricula = db.query(Matricula).filter(
-        Matricula.estudiante_id == estudiante_id,
-        Matricula.curso_id == curso_id,
-        Matricula.is_active == True
-    ).first()
-    
-    if not matricula:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El estudiante no está matriculado en este curso"
-        )
-    
-    # Validar estructura usando GradeCalculator
-    from app.shared.grade_calculator import GradeCalculator
-    estructura = GradeCalculator.validar_estructura_ciclo(estudiante_id, curso_id, db)
-    
-    return {
-        "estudiante_id": estudiante_id,
-        "curso_id": curso_id,
-        "notas_semanales": estructura["notas_semanales"],
-        "notas_practicas": estructura["notas_practicas"],
-        "notas_parciales": estructura["notas_parciales"],
-        "estructura_completa": estructura["estructura_completa"]
-    }
-
-@router.get("/courses/{curso_id}/all-final-grades", response_model=List[PromedioFinalResponse])
-def get_all_students_final_grades(
-    curso_id: int,
-    current_user: User = Depends(get_docente_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener los promedios finales de todos los estudiantes de un curso"""
-    
-    # Verificar que el curso pertenece al docente
-    curso = db.query(Curso).filter(
-        Curso.id == curso_id,
-        Curso.docente_id == current_user.id,
-        Curso.is_active == True
-    ).first()
-    
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado o no tienes permisos para acceder"
-        )
-    
-    # Obtener todos los estudiantes matriculados en el curso
-    matriculas = db.query(Matricula).filter(
-        Matricula.curso_id == curso_id,
-        Matricula.is_active == True
-    ).all()
-    
-    resultados = []
-    from app.shared.grade_calculator import GradeCalculator
-    
-    for matricula in matriculas:
-        resultado = GradeCalculator.calcular_promedio_final(matricula.estudiante_id, curso_id, db)
-        resultados.append({
-            "estudiante_id": matricula.estudiante_id,
-            "curso_id": curso_id,
-            "promedio_final": resultado["promedio_final"],
-            "estado": resultado["estado"],
-            "detalle": resultado["detalle"]
-        })
-    
-    return resultados
