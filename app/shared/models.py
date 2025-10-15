@@ -120,10 +120,10 @@ class Curso(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
-    codigo = Column(String(20), nullable=False)
+    codigo = Column(String(20), nullable=False)  # Campo requerido por la BD
     descripcion = Column(Text, nullable=True)
-    creditos = Column(Integer, nullable=False)
-    horas_semanales = Column(Integer, nullable=False)
+    creditos = Column(Integer, nullable=False)  # Campo requerido por la BD
+    horas_semanales = Column(Integer, nullable=False)  # Campo requerido por la BD
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
     docente_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Relación con docente
     is_active = Column(Boolean, default=True)
@@ -143,7 +143,6 @@ class Matricula(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
     codigo_matricula = Column(String(20), unique=True, nullable=True)
     fecha_matricula = Column(Date, nullable=False, server_default=func.current_date())
@@ -157,7 +156,7 @@ class Matricula(Base):
     ciclo = relationship("Ciclo", back_populates="matriculas")
     
     def __repr__(self):
-        return f"<Matricula(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, ciclo_id={self.ciclo_id})>"
+        return f"<Matricula(estudiante_id={self.estudiante_id}, ciclo_id={self.ciclo_id})>"
 
 class Nota(Base):
     __tablename__ = "notas"
@@ -165,9 +164,16 @@ class Nota(Base):
     id = Column(Integer, primary_key=True, index=True)
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
-    tipo_evaluacion = Column(String(50), nullable=False)  # SEMANAL, PRACTICA, PARCIAL
-    valor_nota = Column(Numeric(4, 2), nullable=False)  # La nota individual (0-20)
-    peso = Column(Numeric(3, 2), nullable=False)  # 0.1 para semanales, 0.3 para prácticas y parciales
+    tipo_evaluacion = Column(String(50), nullable=False)
+    # NUEVOS CAMPOS - TODOS OPCIONALES
+    nota1 = Column(Numeric(4, 2), nullable=True)
+    nota2 = Column(Numeric(4, 2), nullable=True)
+    nota3 = Column(Numeric(4, 2), nullable=True)
+    nota4 = Column(Numeric(4, 2), nullable=True)
+    nota_final = Column(Numeric(4, 2), nullable=True)
+    estado = Column(String(20), nullable=True)  # APROBADO, DESAPROBADO
+    
+    peso = Column(Numeric(3, 2), nullable=False)
     fecha_evaluacion = Column(Date, nullable=False)
     observaciones = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -179,7 +185,7 @@ class Nota(Base):
     historial = relationship("HistorialNota", back_populates="nota")
     
     def __repr__(self):
-        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, nota={self.nota})>"
+        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, nota_final={self.nota_final})>"
 
 class HistorialNota(Base):
     __tablename__ = "historial_notas"
@@ -190,8 +196,9 @@ class HistorialNota(Base):
     curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
     nota_anterior = Column(Numeric(4, 2), nullable=True)
     nota_nueva = Column(Numeric(4, 2), nullable=False)
-    modificado_por = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    motivo_cambio = Column(String(255), nullable=False)
+    usuario_modificacion = Column(String(100), nullable=False)
+    fecha_modificacion = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relaciones
     nota = relationship("Nota", back_populates="historial")
