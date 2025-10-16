@@ -1,7 +1,62 @@
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from decimal import Decimal
+
+# Schemas específicos para el Dashboard
+class EstudianteInfo(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    dni:str
+    codigo_estudiante: Optional[str] = None
+
+class CursoDashboard(BaseModel):
+    id: int
+    nombre: str
+    codigo: str
+    docente_nombre: str
+    ciclo_nombre: str
+    creditos: Optional[int] = 3
+
+class NotaDashboard(BaseModel):
+    """Esquema simplificado para el dashboard - USANDO CAMPOS REALES"""
+    id: int
+    curso_nombre: str
+    curso_codigo: str
+    docente_nombre: str
+    ciclo_nombre: str
+    
+    # SOLO CAMPOS QUE EXISTEN EN EL MODELO
+    evaluacion1: Optional[float] = None
+    evaluacion2: Optional[float] = None
+    evaluacion3: Optional[float] = None
+    evaluacion4: Optional[float] = None
+    evaluacion5: Optional[float] = None
+    evaluacion6: Optional[float] = None
+    evaluacion7: Optional[float] = None
+    evaluacion8: Optional[float] = None
+    
+    practica1: Optional[float] = None
+    practica2: Optional[float] = None
+    practica3: Optional[float] = None
+    practica4: Optional[float] = None
+    
+    parcial1: Optional[float] = None
+    parcial2: Optional[float] = None
+    
+    promedio_final: Optional[float] = None
+    estado: Optional[str] = None
+    
+    fecha_actualizacion: str
+
+class EstadisticasDashboard(BaseModel):
+    total_cursos: int
+    promedio_general: float
+    cursos_aprobados: int
+    cursos_desaprobados: int
+    creditos_completados: int
+
 
 # Schemas para Carrera
 class CarreraBase(BaseModel):
@@ -85,26 +140,21 @@ class MatriculaResponse(MatriculaBase):
     class Config:
         from_attributes = True
 
-# Schemas para Notas
-class NotaEstudianteResponse(BaseModel):
-    """Vista de notas desde la perspectiva del estudiante"""
-    id: int
-    curso_nombre: str
-    curso_codigo: str
-    docente_nombre: str
-    tipo_evaluacion: str
-    valor_nota: Decimal
-    peso: Decimal
-    fecha_evaluacion: str
-    observaciones: Optional[str] = None
-    created_at: datetime
+
+# para el dashboard
+class CursoConNotasResponse(BaseModel):
+    """Curso con todas sus notas - SISTEMA NUEVO"""
+    curso: 'CursoEstudianteResponse'
+    notas: List['NotaEstudianteResponse']
+    promedio_final: Optional[Decimal] = None
+    estado: Optional[str] = None
     
     class Config:
         from_attributes = True
 
 class PromedioFinalEstudianteResponse(BaseModel):
     """Promedio final del estudiante en un curso"""
-    curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
+    curso_id: int
     curso_nombre: str
     promedio_final: Decimal
     estado: str  # APROBADO, DESAPROBADO, SIN_NOTAS
@@ -113,26 +163,95 @@ class PromedioFinalEstudianteResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class NotasPorTipoResponse(BaseModel):
-    """Notas agrupadas por tipo de evaluación"""
-    curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
+# Schemas para Notas - SISTEMA NUEVO
+class NotaEstudianteResponse(BaseModel):
+    """Vista de notas desde la perspectiva del estudiante - SISTEMA NUEVO"""
+    id: int
+    curso_id: int
     curso_nombre: str
-    notas_semanales: List[NotaEstudianteResponse]
-    notas_practicas: List[NotaEstudianteResponse]
-    notas_parciales: List[NotaEstudianteResponse]
+    docente_nombre: str
+    tipo_evaluacion: str
+    
+    # Campos del sistema nuevo
+    evaluacion1: Optional[Decimal] = None
+    evaluacion2: Optional[Decimal] = None
+    evaluacion3: Optional[Decimal] = None
+    evaluacion4: Optional[Decimal] = None
+    evaluacion5: Optional[Decimal] = None
+    evaluacion6: Optional[Decimal] = None
+    evaluacion7: Optional[Decimal] = None
+    evaluacion8: Optional[Decimal] = None
+    
+    practica1: Optional[Decimal] = None
+    practica2: Optional[Decimal] = None
+    practica3: Optional[Decimal] = None
+    practica4: Optional[Decimal] = None
+    
+    parcial1: Optional[Decimal] = None
+    parcial2: Optional[Decimal] = None
+    
+    promedio_final: Optional[Decimal] = None
+    estado: Optional[str] = None
+    
+    peso: Decimal
+    fecha_evaluacion: str
+    observaciones: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class NotaDetalladaResponse(BaseModel):
+    """Nota con todos los campos detallados"""
+    id: int
+    curso_id: int
+    curso_nombre: str
+    docente_nombre: str
+    tipo_evaluacion: str
+    
+    # Evaluaciones semanales
+    evaluaciones: Dict[str, Optional[Decimal]] = Field(default_factory=dict)
+    
+    # Prácticas
+    practicas: Dict[str, Optional[Decimal]] = Field(default_factory=dict)
+    
+    # Parciales
+    parciales: Dict[str, Optional[Decimal]] = Field(default_factory=dict)
+    
+    # Resultados
+    promedio_final: Optional[Decimal] = None
+    estado: Optional[str] = None
+    
+    peso: Decimal
+    fecha_evaluacion: str
+    observaciones: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+      
+class NotasPorTipoResponse(BaseModel):
+    """Notas agrupadas por tipo de evaluación - SISTEMA NUEVO"""
+    curso_id: int
+    curso_nombre: str
+    
+    # Notas agrupadas por tipo
+    evaluaciones_semanales: List[NotaEstudianteResponse] = Field(default_factory=list)
+    evaluaciones_practicas: List[NotaEstudianteResponse] = Field(default_factory=list)
+    evaluaciones_parciales: List[NotaEstudianteResponse] = Field(default_factory=list)
+    
     promedio_final: Optional[Decimal] = None
     estado: Optional[str] = None
     
     class Config:
         from_attributes = True
 
-# Schemas para Dashboard del Estudiante
 class EstudianteDashboard(BaseModel):
     """Información completa del dashboard del estudiante"""
-    estudiante_info: dict
-    cursos_actuales: List[CursoEstudianteResponse]
-    notas_recientes: List[NotaEstudianteResponse]
-    estadisticas: dict
+    estudiante_info: EstudianteInfo
+    cursos_actuales: List[CursoDashboard]
+    notas_recientes: List[NotaDashboard]
+    estadisticas: EstadisticasDashboard
     
     class Config:
         from_attributes = True
@@ -147,6 +266,9 @@ class EstadisticasEstudiante(BaseModel):
     
     class Config:
         from_attributes = True
+
+# Forward references
+CursoConNotasResponse.update_forward_refs()
 
 # Schemas para solicitudes de matrícula
 class SolicitudMatricula(BaseModel):
