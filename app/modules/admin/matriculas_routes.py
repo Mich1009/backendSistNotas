@@ -295,6 +295,7 @@ def get_ciclos_disponibles_para_estudiante(
                 "fecha_inicio": ciclo.fecha_inicio.isoformat() if ciclo.fecha_inicio else None,
                 "fecha_fin": ciclo.fecha_fin.isoformat() if ciclo.fecha_fin else None,
                 "carrera_id": ciclo.carrera_id,
+                "año": ciclo.año,
                 "is_active": ciclo.is_active,
                 "puede_matricularse": True,
                 "razon": "Ciclo especial"
@@ -310,6 +311,7 @@ def get_ciclos_disponibles_para_estudiante(
                 "fecha_inicio": ciclo.fecha_inicio.isoformat() if ciclo.fecha_inicio else None,
                 "fecha_fin": ciclo.fecha_fin.isoformat() if ciclo.fecha_fin else None,
                 "carrera_id": ciclo.carrera_id,
+                "año": ciclo.año,
                 "is_active": ciclo.is_active,
                 "puede_matricularse": False,
                 "razon": "Ya matriculado en este ciclo"
@@ -340,6 +342,7 @@ def get_ciclos_disponibles_para_estudiante(
             "fecha_inicio": ciclo.fecha_inicio.isoformat() if ciclo.fecha_inicio else None,
             "fecha_fin": ciclo.fecha_fin.isoformat() if ciclo.fecha_fin else None,
             "carrera_id": ciclo.carrera_id,
+            "año": ciclo.año,
             "is_active": ciclo.is_active,
             "puede_matricularse": puede_matricularse,
             "razon": razon

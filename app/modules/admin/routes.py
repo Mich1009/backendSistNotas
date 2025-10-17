@@ -16,6 +16,7 @@ from .cursos_ciclos_routes import router as cursos_ciclos_router
 from .matriculas_routes import router as matriculas_router
 from .notas_routes import router as notas_router
 from .reportes_routes import router as reportes_router
+from .performance_routes import router as performance_router
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -26,6 +27,7 @@ router.include_router(cursos_ciclos_router)
 router.include_router(matriculas_router)
 router.include_router(notas_router)
 router.include_router(reportes_router)
+router.include_router(performance_router)
 
 @router.get("/dashboard", response_model=AdminDashboard)
 def get_admin_dashboard(
