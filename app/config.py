@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = "latin-1"
         case_sensitive = False
 
 settings = Settings()
