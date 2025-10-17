@@ -16,6 +16,7 @@ from .cursos_ciclos_routes import router as cursos_ciclos_router
 from .matriculas_routes import router as matriculas_router
 from .notas_routes import router as notas_router
 from .reportes_routes import router as reportes_router
+from .performance_routes import router as performance_router
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -26,6 +27,7 @@ router.include_router(cursos_ciclos_router)
 router.include_router(matriculas_router)
 router.include_router(notas_router)
 router.include_router(reportes_router)
+router.include_router(performance_router)
 
 @router.get("/dashboard", response_model=AdminDashboard)
 def get_admin_dashboard(
@@ -45,17 +47,30 @@ def get_admin_dashboard(
         User.role == RoleEnum.DOCENTE, 
         User.is_active == True
     ).count()
+    total_admins = db.query(User).filter(
+        User.role == RoleEnum.ADMIN, 
+        User.is_active == True
+    ).count()
+    total_carreras = db.query(Carrera).filter(Carrera.is_active == True).count()
+    total_ciclos = db.query(Ciclo).filter(Ciclo.is_active == True).count()
     total_cursos = db.query(Curso).filter(Curso.is_active == True).count()
+    usuarios_activos = db.query(User).filter(User.is_active == True).count()
+    usuarios_inactivos = db.query(User).filter(User.is_active == False).count()
     
     # Calcular promedio general real
-    promedio_general = db.query(func.avg(Nota.nota)).scalar() or 0
+    promedio_general = db.query(func.avg(Nota.nota_final)).scalar() or 0
     
     estadisticas = EstadisticasGenerales(
         total_usuarios=total_usuarios,
         total_estudiantes=total_estudiantes,
         total_docentes=total_docentes,
+        total_admins=total_admins,
+        total_carreras=total_carreras,
+        total_ciclos=total_ciclos,
         total_cursos=total_cursos,
         total_matriculas=db.query(Matricula).count(),
+        usuarios_activos=usuarios_activos,
+        usuarios_inactivos=usuarios_inactivos,
         promedio_general=round(promedio_general, 2)
     )
     
@@ -95,7 +110,8 @@ def get_admin_dashboard(
     # ya no tiene relación directa con docentes
     
     return AdminDashboard(
-        estadisticas_generales=estadisticas,
-        actividad_reciente=actividad_reciente,
-        alertas_sistema=alertas
+        estadisticas_generales=estadisticas.model_dump(),
+        usuarios_recientes=usuarios_recientes,
+        actividad_sistema=actividad_reciente,
+        alertas=alertas
     )
