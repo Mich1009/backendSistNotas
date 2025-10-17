@@ -87,7 +87,7 @@ def get_rendimiento_estudiantes(
         Curso.nombre.label('curso_nombre'),
         Ciclo.nombre.label('ciclo_nombre'),
         Carrera.nombre.label('carrera_nombre'),
-        func.avg(Nota.nota).label('promedio')
+        func.avg(Nota.nota_final).label('promedio')
     ).join(
         Nota, User.id == Nota.estudiante_id
     ).join(
@@ -98,7 +98,8 @@ def get_rendimiento_estudiantes(
         Carrera, Ciclo.carrera_id == Carrera.id
     ).filter(
         User.role == RoleEnum.ESTUDIANTE,
-        User.is_active == True
+        User.is_active == True,
+        Nota.nota_final.isnot(None)  # Solo incluir registros con nota final
     )
     
     # Aplicar filtros
@@ -161,7 +162,7 @@ def get_rendimiento_por_curso(
         Curso.id,
         Curso.nombre,
         Ciclo.nombre.label('ciclo_nombre'),
-        func.avg(Nota.nota).label('promedio'),
+        func.avg(Nota.nota_final).label('promedio'),
         func.count(func.distinct(Nota.estudiante_id)).label('total_estudiantes'),
         func.count(Nota.id).label('total_notas')
     ).join(
@@ -177,7 +178,7 @@ def get_rendimiento_por_curso(
     
     resultados = query.group_by(
         Curso.id, Curso.nombre, Ciclo.nombre
-    ).order_by(desc(func.avg(Nota.nota))).all()
+    ).order_by(desc(func.avg(Nota.nota_final))).all()
     
     datos_cursos = []
     for resultado in resultados:
@@ -213,7 +214,7 @@ def exportar_estudiantes_excel(
     )
     
     estudiantes = query.all()
-    
+
     # Preparar datos para Excel
     datos_estudiantes = []
     for estudiante in estudiantes:
@@ -228,7 +229,7 @@ def exportar_estudiantes_excel(
             "Dirección": estudiante.direccion,
             "Apoderado": estudiante.nombre_apoderado,
             "Teléfono Apoderado": estudiante.telefono_apoderado,
-            "Fecha Registro": estudiante.created_at
+            "Fecha Registro": estudiante.created_at.replace(tzinfo=None) if estudiante.created_at else None
         })
     
     # Crear DataFrame
@@ -248,7 +249,7 @@ def exportar_estudiantes_excel(
                 User.last_name,
                 Curso.nombre.label('curso'),
                 Ciclo.nombre.label('ciclo'),
-                Nota.nota,
+                Nota.nota_final,
                 Nota.fecha_registro
             ).join(
                 Nota, User.id == Nota.estudiante_id
@@ -271,8 +272,8 @@ def exportar_estudiantes_excel(
                     "Apellidos": nota.last_name,
                     "Curso": nota.curso,
                     "Ciclo": nota.ciclo,
-                    "Nota": nota.nota,
-                    "Fecha": nota.fecha_registro
+                    "Nota": nota.nota_final,
+                    "Fecha": nota.fecha_registro.replace(tzinfo=None) if nota.fecha_registro else None
                 })
             
             df_notas = pd.DataFrame(notas_data)
@@ -288,6 +289,106 @@ def exportar_estudiantes_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+# ==================== ESTADÍSTICAS ESPECÍFICAS ====================
+
+@router.get("/estudiantes-por-ciclo")
+def get_estudiantes_por_ciclo(
+    año: Optional[int] = Query(None, description="Año para filtrar los ciclos"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
+):
+    """
+    Obtener estadísticas de estudiantes por ciclo.
+    El ciclo actual de un estudiante es el número de ciclo más alto en el que está matriculado.
+    """
+    
+    # Si no se especifica año, usar el año actual
+    if año is None:
+        año = datetime.now().year
+    
+    # Obtener años únicos disponibles en los ciclos
+    años_disponibles = db.query(Ciclo.año).distinct().order_by(Ciclo.año.desc()).all()
+    años_disponibles = [año_tuple[0] for año_tuple in años_disponibles]
+    
+    # Subconsulta para obtener el ciclo más alto (actual) de cada estudiante
+    subquery = db.query(
+        Matricula.estudiante_id,
+        func.max(Ciclo.numero).label('ciclo_actual_numero')
+    ).join(
+        Ciclo, Matricula.ciclo_id == Ciclo.id
+    ).filter(
+        Matricula.is_active == True,
+        Ciclo.año == año,
+        Ciclo.is_active == True
+    ).group_by(Matricula.estudiante_id).subquery()
+    
+    # Consulta principal para obtener estadísticas por ciclo
+    estadisticas = db.query(
+        Ciclo.numero,
+        Ciclo.nombre,
+        func.count(subquery.c.estudiante_id).label('numero_estudiantes')
+    ).join(
+        subquery, 
+        and_(
+            Ciclo.numero == subquery.c.ciclo_actual_numero,
+            Ciclo.año == año
+        )
+    ).filter(
+        Ciclo.is_active == True
+    ).group_by(
+        Ciclo.numero, Ciclo.nombre
+    ).order_by(Ciclo.numero).all()
+    
+    # Formatear resultados
+    resultado = []
+    for stat in estadisticas:
+        # Convertir número de ciclo a romano
+        ciclo_romano = convertir_a_romano(stat.numero)
+        resultado.append({
+            "ciclo": ciclo_romano,
+            "ciclo_numero": stat.numero,
+            "ciclo_nombre": stat.nombre,
+            "numero_estudiantes": stat.numero_estudiantes
+        })
+    
+    # Si no hay datos, crear estructura básica con ciclos vacíos
+    if not resultado:
+        # Obtener todos los ciclos del año para mostrar estructura completa
+        ciclos_año = db.query(Ciclo).filter(
+            Ciclo.año == año,
+            Ciclo.is_active == True
+        ).order_by(Ciclo.numero).all()
+        
+        for ciclo in ciclos_año:
+            ciclo_romano = convertir_a_romano(ciclo.numero)
+            resultado.append({
+                "ciclo": ciclo_romano,
+                "ciclo_numero": ciclo.numero,
+                "ciclo_nombre": ciclo.nombre,
+                "numero_estudiantes": 0
+            })
+    
+    return {
+        "año_seleccionado": año,
+        "años_disponibles": años_disponibles,
+        "estadisticas": resultado,
+        "total_estudiantes": sum(item["numero_estudiantes"] for item in resultado)
+    }
+
+def convertir_a_romano(numero):
+    """Convertir número a romano para mostrar ciclos"""
+    valores = [
+        (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
+    ]
+    
+    resultado = ''
+    for valor, numeral in valores:
+        count = numero // valor
+        if count:
+            resultado += numeral * count
+            numero -= valor * count
+    return resultado
 
 @router.get("/exportar/docentes")
 def exportar_docentes_excel(
@@ -322,7 +423,7 @@ def exportar_docentes_excel(
             "Fecha Ingreso": docente.fecha_ingreso,
             "Cursos Asignados": cursos_nombres,
             "Total Cursos": len(cursos),
-            "Fecha Registro": docente.created_at
+            "Fecha Registro": docente.created_at.replace(tzinfo=None) if docente.created_at else None
         })
     
     df_docentes = pd.DataFrame(datos_docentes)
@@ -357,7 +458,7 @@ def exportar_notas_excel(
         Curso.nombre.label('curso'),
         Ciclo.nombre.label('ciclo'),
         Carrera.nombre.label('carrera'),
-        Nota.nota,
+        Nota.nota_final,
         Nota.fecha_registro,
         User.first_name.label('docente_nombre'),
         User.last_name.label('docente_apellido')
@@ -390,8 +491,8 @@ def exportar_notas_excel(
             "Carrera": nota.carrera,
             "Ciclo": nota.ciclo,
             "Curso": nota.curso,
-            "Nota": nota.nota,
-            "Fecha Registro": nota.fecha_registro
+            "Nota": nota.nota_final,
+            "Fecha Registro": nota.fecha_registro.replace(tzinfo=None) if nota.fecha_registro else None
         })
     
     df_notas = pd.DataFrame(datos_notas)
