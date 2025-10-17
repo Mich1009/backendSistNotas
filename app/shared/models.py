@@ -161,17 +161,31 @@ class Nota(Base):
     id = Column(Integer, primary_key=True, index=True)
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
-    tipo_evaluacion = Column(String(50), nullable=False)
-    # NUEVOS CAMPOS - TODOS OPCIONALES
-    nota1 = Column(Numeric(4, 2), nullable=True)
-    nota2 = Column(Numeric(4, 2), nullable=True)
-    nota3 = Column(Numeric(4, 2), nullable=True)
-    nota4 = Column(Numeric(4, 2), nullable=True)
-    nota_final = Column(Numeric(4, 2), nullable=True)
+    tipo_evaluacion = Column(String(50), nullable=False, default="EVALUACION")
+        # NUEVOS CAMPOS - SISTEMA DE NOTAS
+    evaluacion1 = Column(Numeric(4, 2), nullable=True)
+    evaluacion2 = Column(Numeric(4, 2), nullable=True)
+    evaluacion3 = Column(Numeric(4, 2), nullable=True)
+    evaluacion4 = Column(Numeric(4, 2), nullable=True)
+    evaluacion5 = Column(Numeric(4, 2), nullable=True)
+    evaluacion6 = Column(Numeric(4, 2), nullable=True)
+    evaluacion7 = Column(Numeric(4, 2), nullable=True)
+    evaluacion8 = Column(Numeric(4, 2), nullable=True)
+
+    practica1 = Column(Numeric(4, 2), nullable=True)
+    practica2 = Column(Numeric(4, 2), nullable=True)
+    practica3 = Column(Numeric(4, 2), nullable=True)
+    practica4 = Column(Numeric(4, 2), nullable=True)
+
+    parcial1 = Column(Numeric(4, 2), nullable=True)
+    parcial2 = Column(Numeric(4, 2), nullable=True)
+
+    promedio_final = Column(Numeric(4, 2), nullable=True)
+
     estado = Column(String(20), nullable=True)  # APROBADO, DESAPROBADO
     
     peso = Column(Numeric(3, 2), nullable=False)
-    fecha_evaluacion = Column(Date, nullable=False)
+    fecha_evaluacion = Column(Date, nullable=False, default=func.now())
     observaciones = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
