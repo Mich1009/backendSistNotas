@@ -37,9 +37,6 @@ class CicloResponse(CicloBase):
 # Schemas para Curso
 class CursoBase(BaseModel):
     nombre: str
-    codigo: str
-    creditos: int
-    horas_semanales: int
     horario: Optional[str] = None
     aula: Optional[str] = None
     max_estudiantes: int = 30
@@ -63,9 +60,6 @@ class CursoEstudianteResponse(BaseModel):
     """Información del curso desde la perspectiva del estudiante"""
     id: int
     nombre: str
-    codigo: str
-    creditos: int
-    horas_semanales: int
     docente_nombre: str
     ciclo_nombre: str
     
@@ -74,7 +68,6 @@ class CursoEstudianteResponse(BaseModel):
 
 # Schemas para Matrícula
 class MatriculaBase(BaseModel):
-    curso_id: int
     ciclo_id: int
 
 class MatriculaCreate(MatriculaBase):
@@ -87,46 +80,48 @@ class MatriculaResponse(MatriculaBase):
     is_active: bool
     
     # Información relacionada
-    curso: Optional[CursoResponse] = None
     ciclo: Optional[CicloResponse] = None
     
     class Config:
         from_attributes = True
 
 # Schemas para Notas
-class NotaBase(BaseModel):
-    nota_1: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 1 (0-20)")
-    nota_2: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 2 (0-20)")
-    nota_3: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 3 (0-20)")
-    nota_4: Optional[Decimal] = Field(None, ge=0, le=20, description="Nota 4 (0-20)")
-    observaciones: Optional[str] = None
-
-class NotaResponse(NotaBase):
-    id: int
-    estudiante_id: int
-    curso_id: int
-    promedio: Optional[Decimal] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    # Información relacionada
-    curso: Optional[CursoResponse] = None
-    
-    class Config:
-        from_attributes = True
-
 class NotaEstudianteResponse(BaseModel):
     """Vista de notas desde la perspectiva del estudiante"""
     id: int
     curso_nombre: str
     curso_codigo: str
     docente_nombre: str
-    nota_1: Optional[Decimal] = None
-    nota_2: Optional[Decimal] = None
-    nota_3: Optional[Decimal] = None
-    nota_4: Optional[Decimal] = None
-    promedio: Optional[Decimal] = None
+    tipo_evaluacion: str
+    valor_nota: Decimal
+    peso: Decimal
+    fecha_evaluacion: str
     observaciones: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class PromedioFinalEstudianteResponse(BaseModel):
+    """Promedio final del estudiante en un curso"""
+    curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
+    curso_nombre: str
+    promedio_final: Decimal
+    estado: str  # APROBADO, DESAPROBADO, SIN_NOTAS
+    detalle: dict
+    
+    class Config:
+        from_attributes = True
+
+class NotasPorTipoResponse(BaseModel):
+    """Notas agrupadas por tipo de evaluación"""
+    curso_id: int  # Mantener curso_id aquí porque las notas SÍ están relacionadas con cursos
+    curso_nombre: str
+    notas_semanales: List[NotaEstudianteResponse]
+    notas_practicas: List[NotaEstudianteResponse]
+    notas_parciales: List[NotaEstudianteResponse]
+    promedio_final: Optional[Decimal] = None
+    estado: Optional[str] = None
     
     class Config:
         from_attributes = True

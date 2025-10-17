@@ -11,7 +11,8 @@ from .models import Carrera, Ciclo, Curso, Matricula, Nota
 from .schemas import (
     CarreraResponse, CicloResponse, CursoEstudianteResponse, 
     MatriculaResponse, NotaEstudianteResponse,
-    EstudianteDashboard, EstadisticasEstudiante
+    EstudianteDashboard, EstadisticasEstudiante,
+    PromedioFinalEstudianteResponse, NotasPorTipoResponse
 )
 
 router = APIRouter(prefix="/student", tags=["Estudiante"])
@@ -45,9 +46,6 @@ def get_student_dashboard(
         curso_data = {
             "id": curso.id,
             "nombre": curso.nombre,
-            "codigo": curso.codigo,
-            "creditos": curso.creditos,
-            "horas_semanales": getattr(curso, 'horas_semanales', 0),
             "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
             "ciclo_nombre": curso.ciclo.nombre
         }
@@ -58,7 +56,7 @@ def get_student_dashboard(
         Nota.estudiante_id == current_user.id
     ).options(
         joinedload(Nota.curso).joinedload(Curso.docente)
-    ).order_by(Nota.updated_at.desc()).limit(10).all()
+    ).order_by(Nota.created_at.desc()).limit(10).all()
     
     # Convertir notas a formato de respuesta
     notas_response = []
@@ -66,40 +64,44 @@ def get_student_dashboard(
         nota_data = {
             "id": nota.id,
             "curso_nombre": nota.curso.nombre,
-            "curso_codigo": nota.curso.codigo,
             "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-            "nota_1": None,  # El modelo actual no tiene estos campos
-            "nota_2": None,
-            "nota_3": None,
-            "nota_4": None,
-            "promedio": float(nota.nota) if nota.nota else None,
-            "observaciones": nota.observaciones
+            "tipo_evaluacion": nota.tipo_evaluacion,
+            "valor_nota": float(nota.valor_nota),
+            "peso": float(nota.peso),
+            "fecha_evaluacion": nota.fecha_evaluacion.strftime("%Y-%m-%d"),
+            "observaciones": nota.observaciones,
+            "created_at": nota.created_at
         }
         notas_response.append(nota_data)
     
     # Calcular estadísticas
     total_cursos = len(cursos_actuales)
     
-    # Calcular promedio general
-    todas_las_notas = db.query(Nota).filter(
-        Nota.estudiante_id == current_user.id,
-        Nota.nota.isnot(None)
-    ).all()
+    # Calcular promedio general usando GradeCalculator
+    from app.shared.grade_calculator import GradeCalculator
+    
+    promedios_por_curso = []
+    cursos_aprobados = 0
+    cursos_desaprobados = 0
+    
+    for curso in cursos_actuales:
+        resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso.id, db)
+        if resultado["promedio_final"] > 0:
+            promedios_por_curso.append(resultado["promedio_final"])
+            if resultado["estado"] == "APROBADO":
+                cursos_aprobados += 1
+            else:
+                cursos_desaprobados += 1
     
     promedio_general = None
-    if todas_las_notas:
-        suma_promedios = sum(float(nota.nota) for nota in todas_las_notas)
-        promedio_general = Decimal(str(suma_promedios / len(todas_las_notas)))
+    if promedios_por_curso:
+        promedio_general = sum(promedios_por_curso) / len(promedios_por_curso)
     
-    # Contar cursos aprobados/desaprobados
-    cursos_aprobados = sum(1 for nota in todas_las_notas if nota.nota and float(nota.nota) >= 11)
-    cursos_desaprobados = sum(1 for nota in todas_las_notas if nota.nota and float(nota.nota) < 11)
-    
-    # Calcular créditos completados
-    creditos_completados = sum(
-        curso.creditos for curso in cursos_actuales 
-        if any(nota.nota and float(nota.nota) >= 11 for nota in todas_las_notas if nota.curso_id == curso.id)
-    )
+    # Calcular créditos completados (sin campo creditos, usar conteo de cursos)
+    creditos_completados = len([
+        curso for curso in cursos_actuales 
+        if any(promedio >= 10.5 for promedio in promedios_por_curso)
+    ])
     
     estadisticas = {
         "total_cursos": total_cursos,
@@ -157,9 +159,6 @@ def get_student_courses(
             curso_data = {
                 "id": curso.id,
                 "nombre": curso.nombre,
-                "codigo": curso.codigo,
-                "creditos": curso.creditos,
-                "horas_semanales": getattr(curso, 'horas_semanales', 0),
                 "horario": getattr(curso, 'horario', None),
                 "aula": getattr(curso, 'aula', None),
                 "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
@@ -194,7 +193,7 @@ def get_student_grades(
         if curso_id:
             query = query.filter(Nota.curso_id == curso_id)
         
-        notas = query.order_by(Nota.updated_at.desc()).all()
+        notas = query.order_by(Nota.created_at.desc()).all()
         
         # Convertir a formato de respuesta
         notas_response = []
@@ -202,14 +201,13 @@ def get_student_grades(
             nota_data = {
                 "id": nota.id,
                 "curso_nombre": nota.curso.nombre,
-                "curso_codigo": nota.curso.codigo,
                 "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-                "nota_1": None,  # El modelo actual no tiene estos campos
-                "nota_2": None,
-                "nota_3": None,
-                "nota_4": None,
-                "promedio": float(nota.nota) if nota.nota else None,
-                "observaciones": nota.observaciones
+                "tipo_evaluacion": nota.tipo_evaluacion,
+                "valor_nota": float(nota.valor_nota),
+                "peso": float(nota.peso),
+                "fecha_evaluacion": nota.fecha_evaluacion.strftime("%Y-%m-%d"),
+                "observaciones": nota.observaciones,
+                "created_at": nota.created_at
             }
             notas_response.append(nota_data)
         
@@ -221,39 +219,44 @@ def get_student_grades(
             detail="Error al obtener las notas del estudiante"
         )
 
-@router.get("/grades/{curso_id}", response_model=NotaEstudianteResponse)
+@router.get("/grades/{curso_id}", response_model=List[NotaEstudianteResponse])
 def get_student_grade_by_course(
     curso_id: int,
     current_user: User = Depends(get_estudiante_user),
     db: Session = Depends(get_db)
 ):
-    """Obtener nota específica de un curso"""
+    """Obtener todas las notas de un curso específico"""
     
-    nota = db.query(Nota).filter(
+    notas = db.query(Nota).filter(
         Nota.estudiante_id == current_user.id,
         Nota.curso_id == curso_id
     ).options(
         joinedload(Nota.curso).joinedload(Curso.docente)
-    ).first()
+    ).order_by(Nota.fecha_evaluacion.desc()).all()
     
-    if not nota:
+    if not notas:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Nota no encontrada para este curso"
+            detail="No se encontraron notas para este curso"
         )
     
-    return {
-        "id": nota.id,
-        "curso_nombre": nota.curso.nombre,
-        "curso_codigo": nota.curso.codigo,
-        "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-        "nota_1": None,  # El modelo actual no tiene estos campos
-        "nota_2": None,
-        "nota_3": None,
-        "nota_4": None,
-        "promedio": float(nota.nota) if nota.nota else None,
-        "observaciones": nota.observaciones
-    }
+    # Convertir a formato de respuesta
+    notas_response = []
+    for nota in notas:
+        nota_data = {
+            "id": nota.id,
+            "curso_nombre": nota.curso.nombre,
+            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
+            "tipo_evaluacion": nota.tipo_evaluacion,
+            "valor_nota": float(nota.valor_nota),
+            "peso": float(nota.peso),
+            "fecha_evaluacion": nota.fecha_evaluacion.strftime("%Y-%m-%d"),
+            "observaciones": nota.observaciones,
+            "created_at": nota.created_at
+        }
+        notas_response.append(nota_data)
+    
+    return notas_response
 
 @router.get("/enrollments", response_model=List[MatriculaResponse])
 def get_student_enrollments(
@@ -283,12 +286,6 @@ def get_student_statistics(
 ):
     """Obtener estadísticas del estudiante"""
     
-    # Obtener todas las notas del estudiante
-    notas = db.query(Nota).filter(
-        Nota.estudiante_id == current_user.id,
-        Nota.nota.isnot(None)
-    ).all()
-    
     # Obtener cursos actuales a través de matrículas
     matriculas_activas = db.query(Matricula).filter(
         Matricula.estudiante_id == current_user.id,
@@ -301,22 +298,33 @@ def get_student_statistics(
         Curso.is_active == True
     ).all()
     
+    # Calcular estadísticas usando GradeCalculator
+    from app.shared.grade_calculator import GradeCalculator
+    
+    promedios_por_curso = []
+    cursos_aprobados = 0
+    cursos_desaprobados = 0
+    
+    for curso in cursos_actuales:
+        resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso.id, db)
+        if resultado["promedio_final"] > 0:
+            promedios_por_curso.append(resultado["promedio_final"])
+            if resultado["estado"] == "APROBADO":
+                cursos_aprobados += 1
+            else:
+                cursos_desaprobados += 1
+    
     # Calcular estadísticas
     total_cursos = len(cursos_actuales)
     
     promedio_general = None
-    if notas:
-        suma_promedios = sum(float(nota.nota) for nota in notas)
-        promedio_general = Decimal(str(suma_promedios / len(notas)))
-    
-    cursos_aprobados = sum(1 for nota in notas if nota.nota and float(nota.nota) >= 11)
-    cursos_desaprobados = sum(1 for nota in notas if nota.nota and float(nota.nota) < 11)
+    if promedios_por_curso:
+        promedio_general = sum(promedios_por_curso) / len(promedios_por_curso)
     
     # Calcular créditos completados (cursos aprobados)
-    cursos_aprobados_ids = [nota.curso_id for nota in notas if nota.nota and float(nota.nota) >= 11]
     creditos_completados = sum(
         curso.creditos for curso in cursos_actuales 
-        if curso.id in cursos_aprobados_ids
+        if any(promedio >= 10.5 for promedio in promedios_por_curso)
     )
     
     return {
@@ -325,4 +333,158 @@ def get_student_statistics(
         "cursos_aprobados": cursos_aprobados,
         "cursos_desaprobados": cursos_desaprobados,
         "creditos_completados": creditos_completados
+    }
+
+# Nuevos endpoints para el sistema de calificaciones mejorado
+
+@router.get("/final-grades", response_model=List[PromedioFinalEstudianteResponse])
+def get_student_final_grades(
+    current_user: User = Depends(get_estudiante_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener promedios finales de todos los cursos del estudiante"""
+    
+    # Obtener cursos del estudiante
+    matriculas_activas = db.query(Matricula).filter(
+        Matricula.estudiante_id == current_user.id,
+        Matricula.is_active == True
+    ).all()
+    
+    ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
+    cursos = db.query(Curso).filter(
+        Curso.ciclo_id.in_(ciclo_ids),
+        Curso.is_active == True
+    ).all()
+    
+    # Calcular promedios finales usando GradeCalculator
+    from app.shared.grade_calculator import GradeCalculator
+    
+    resultados = []
+    for curso in cursos:
+        resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso.id, db)
+        resultados.append({
+            "curso_id": curso.id,
+            "curso_nombre": curso.nombre,
+            "promedio_final": resultado["promedio_final"],
+            "estado": resultado["estado"],
+            "detalle": resultado["detalle"]
+        })
+    
+    return resultados
+
+@router.get("/final-grades/{curso_id}", response_model=PromedioFinalEstudianteResponse)
+def get_student_final_grade_by_course(
+    curso_id: int,
+    current_user: User = Depends(get_estudiante_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener promedio final de un curso específico"""
+    
+    # Verificar que el estudiante está matriculado en el curso
+    matricula = db.query(Matricula).filter(
+        Matricula.estudiante_id == current_user.id,
+        Matricula.curso_id == curso_id,
+        Matricula.is_active == True
+    ).first()
+    
+    if not matricula:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No estás matriculado en este curso"
+        )
+    
+    # Obtener información del curso
+    curso = db.query(Curso).filter(Curso.id == curso_id).first()
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado"
+        )
+    
+    # Calcular promedio final usando GradeCalculator
+    from app.shared.grade_calculator import GradeCalculator
+    resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso_id, db)
+    
+    return {
+        "curso_id": curso_id,
+        "curso_nombre": curso.nombre,
+        "promedio_final": resultado["promedio_final"],
+        "estado": resultado["estado"],
+        "detalle": resultado["detalle"]
+    }
+
+@router.get("/grades-by-type/{curso_id}", response_model=NotasPorTipoResponse)
+def get_student_grades_by_type(
+    curso_id: int,
+    current_user: User = Depends(get_estudiante_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener notas agrupadas por tipo de evaluación para un curso"""
+    
+    # Verificar que el estudiante está matriculado en el curso
+    matricula = db.query(Matricula).filter(
+        Matricula.estudiante_id == current_user.id,
+        Matricula.curso_id == curso_id,
+        Matricula.is_active == True
+    ).first()
+    
+    if not matricula:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No estás matriculado en este curso"
+        )
+    
+    # Obtener información del curso
+    curso = db.query(Curso).filter(Curso.id == curso_id).first()
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado"
+        )
+    
+    # Obtener todas las notas del estudiante en este curso
+    notas = db.query(Nota).filter(
+        Nota.estudiante_id == current_user.id,
+        Nota.curso_id == curso_id
+    ).options(
+        joinedload(Nota.curso).joinedload(Curso.docente)
+    ).order_by(Nota.fecha_evaluacion).all()
+    
+    # Agrupar notas por tipo
+    notas_semanales = []
+    notas_practicas = []
+    notas_parciales = []
+    
+    for nota in notas:
+        nota_data = {
+            "id": nota.id,
+            "curso_nombre": nota.curso.nombre,
+            "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
+            "tipo_evaluacion": nota.tipo_evaluacion,
+            "valor_nota": float(nota.valor_nota),
+            "peso": float(nota.peso),
+            "fecha_evaluacion": nota.fecha_evaluacion.strftime("%Y-%m-%d"),
+            "observaciones": nota.observaciones,
+            "created_at": nota.created_at
+        }
+        
+        if nota.tipo_evaluacion == "SEMANAL":
+            notas_semanales.append(nota_data)
+        elif nota.tipo_evaluacion == "PRACTICA":
+            notas_practicas.append(nota_data)
+        elif nota.tipo_evaluacion == "PARCIAL":
+            notas_parciales.append(nota_data)
+    
+    # Calcular promedio final
+    from app.shared.grade_calculator import GradeCalculator
+    resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso_id, db)
+    
+    return {
+        "curso_id": curso_id,
+        "curso_nombre": curso.nombre,
+        "notas_semanales": notas_semanales,
+        "notas_practicas": notas_practicas,
+        "notas_parciales": notas_parciales,
+        "promedio_final": resultado["promedio_final"],
+        "estado": resultado["estado"]
     }
