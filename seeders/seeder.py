@@ -835,6 +835,8 @@ def import_courses_from_excel(sheet_name: str = "cursos"):
                     if not docente:
                         print(f"[Importación cursos] Docente no encontrado con DNI: {docente_dni}")
 
+                # Generar código único para el curso
+                # Formato: DS-I-001, DS-II-002, etc.
                 # Verificar si ya existe el curso
                 existing_curso = db.query(Curso).filter(
                     Curso.nombre == nombre_curso,

@@ -71,7 +71,6 @@ def get_notas_estudiante(
             "curso": {
                 "id": nota.curso.id,
                 "nombre": nota.curso.nombre,
-                "codigo": nota.curso.codigo,
                 "ciclo": {
                     "id": nota.curso.ciclo.id,
                     "nombre": nota.curso.ciclo.nombre,
@@ -169,7 +168,6 @@ def get_notas_curso(
         "curso": {
             "id": curso.id,
             "nombre": curso.nombre,
-            "codigo": curso.codigo,
             "ciclo": curso.ciclo.nombre,
             "carrera": curso.ciclo.carrera.nombre
         },
