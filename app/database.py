@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from .config import settings
 
 # Crear el engine de la base de datos
-engine = create_engine(settings.database_url)
+engine = create_engine(settings.database_url, connect_args={"options": "-c client_encoding=UTF8"})
 
 # Crear la sesión de la base de datos
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

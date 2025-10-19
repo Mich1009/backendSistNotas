@@ -35,6 +35,9 @@ class CursoDocenteCreate(CursoDocenteBase):
 
 class CursoDocenteUpdate(BaseModel):
     nombre: Optional[str] = Field(None, min_length=3, max_length=100)
+    descripcion: Optional[str] = None
+    horario: Optional[str] = None
+    aula: Optional[str] = None
 
 class CursoDocenteResponse(BaseModel):
     id: int
@@ -46,6 +49,8 @@ class CursoDocenteResponse(BaseModel):
     ciclo_nombre: Optional[str] = None
     ciclo_año: Optional[int] = None
     total_estudiantes: Optional[int] = None
+    horario: Optional[str] = None
+    aula: Optional[str] = None
     
     class Config:
         from_attributes = True

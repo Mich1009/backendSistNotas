@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from typing import List
 import os
 import json
+from pathlib import Path
 
 class Settings(BaseSettings):
     # Base de datos - PostgreSQL
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     
     # CORS - Se parseará automáticamente desde el .env
-    cors_origins: str = '["http://localhost:3000", "http://localhost:5173"]'
+    cors_origins: str = '["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"]'
     
     # Email
     smtp_server: str = "smtp.gmail.com"
@@ -36,7 +37,8 @@ class Settings(BaseSettings):
             return ["http://localhost:3000", "http://localhost:5173"]
     
     class Config:
-        env_file = ".env"
+        # Cargar .env desde la raíz del backend, sin depender del cwd
+        env_file = str(Path(__file__).resolve().parents[1] / ".env")
         env_file_encoding = "latin-1"
         case_sensitive = False
 

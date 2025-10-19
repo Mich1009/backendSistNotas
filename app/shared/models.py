@@ -121,6 +121,8 @@ class Curso(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
     descripcion = Column(Text, nullable=True)
+    horario = Column(String(255), nullable=True)
+    aula = Column(String(100), nullable=True)
     ciclo_id = Column(Integer, ForeignKey("ciclos.id"), nullable=False)
     docente_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Relación con docente
     is_active = Column(Boolean, default=True)
