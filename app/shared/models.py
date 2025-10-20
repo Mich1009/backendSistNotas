@@ -196,7 +196,7 @@ class Nota(Base):
     historial = relationship("HistorialNota", back_populates="nota")
     
     def __repr__(self):
-        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, nota_final={self.nota_final})>"
+        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, promedio_final={self.promedio_final})>"
 
 class HistorialNota(Base):
     __tablename__ = "historial_notas"

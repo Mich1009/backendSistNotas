@@ -188,55 +188,60 @@ def display_credentials():
     print("   Backend API: http://localhost:9001")
     print("   Documentación: http://localhost:9001/docs")
 
-def create_ciclos_2025():
-    """Crea 6 ciclos (I a VI) para el año 2025 en la carrera DS"""
+def create_ciclos_2023_2025():
+    """Crea 6 ciclos (I a VI) para los años 2023, 2024 y 2025 en la carrera DS"""
     db: Session = SessionLocal()
     try:
         carrera_ds = db.query(Carrera).filter(Carrera.codigo == "DS").first()
         if not carrera_ds:
             return 0, 0
 
-        ciclos_2025 = [
-            ("I", 1, date(2025, 4, 1), date(2025, 7, 31)),
-            ("II", 2, date(2025, 9, 1), date(2025, 12, 31)),
-            ("III", 3, date(2025, 4, 1), date(2025, 7, 31)),
-            ("IV", 4, date(2025, 9, 1), date(2025, 12, 31)),
-            ("V", 5, date(2025, 4, 1), date(2025, 7, 31)),
-            ("VI", 6, date(2025, 9, 1), date(2025, 12, 15)),
+        # Definir los ciclos base con fechas relativas (mes y día)
+        ciclos_template = [
+            ("I", 1, 4, 1, 7, 31),    # Abril - Julio
+            ("II", 2, 9, 1, 12, 31),  # Septiembre - Diciembre
+            ("III", 3, 4, 1, 7, 31),  # Abril - Julio
+            ("IV", 4, 9, 1, 12, 31),  # Septiembre - Diciembre
+            ("V", 5, 4, 1, 7, 31),    # Abril - Julio
+            ("VI", 6, 9, 1, 12, 15),  # Septiembre - Diciembre (termina el 15)
         ]
 
         created_count = 0
         skipped_count = 0
 
-        for nombre, numero, fecha_inicio, fecha_fin in ciclos_2025:
-            existing = (
-                db.query(Ciclo)
-                .filter(
-                    Ciclo.carrera_id == carrera_ds.id,
-                    Ciclo.nombre == nombre,
-                    Ciclo.fecha_inicio >= date(2025, 1, 1),
-                    Ciclo.fecha_inicio <= date(2025, 12, 31),
+        # Crear ciclos para los años 2023, 2024 y 2025
+        for year in range(2023, 2026):  # 2023, 2024, 2025
+            for nombre, numero, mes_inicio, dia_inicio, mes_fin, dia_fin in ciclos_template:
+                fecha_inicio = date(year, mes_inicio, dia_inicio)
+                fecha_fin = date(year, mes_fin, dia_fin)
+                
+                existing = (
+                    db.query(Ciclo)
+                    .filter(
+                        Ciclo.carrera_id == carrera_ds.id,
+                        Ciclo.nombre == nombre,
+                        Ciclo.año == year,
+                    )
+                    .first()
                 )
-                .first()
-            )
-            if existing:
-                skipped_count += 1
-                continue
+                if existing:
+                    skipped_count += 1
+                    continue
 
-            new_ciclo = Ciclo(
-                nombre=nombre,
-                numero=numero,
-                año=fecha_inicio.year,  # Calcular año automáticamente desde fecha_inicio
-                descripcion=f"Ciclo {nombre} del año 2025",
-                fecha_inicio=fecha_inicio,
-                fecha_fin=fecha_fin,
-                carrera_id=carrera_ds.id,
-                is_active=True,
-            )
-            db.add(new_ciclo)
-            db.commit()
-            db.refresh(new_ciclo)
-            created_count += 1
+                new_ciclo = Ciclo(
+                    nombre=nombre,
+                    numero=numero,
+                    año=year,
+                    descripcion=f"Ciclo {nombre} del año {year}",
+                    fecha_inicio=fecha_inicio,
+                    fecha_fin=fecha_fin,
+                    carrera_id=carrera_ds.id,
+                    is_active=True,
+                )
+                db.add(new_ciclo)
+                db.commit()
+                db.refresh(new_ciclo)
+                created_count += 1
 
         return created_count, skipped_count
     except Exception:
@@ -540,19 +545,32 @@ def import_students_from_excel(sheet_name: str = "student"):
             }
             return roman_to_int.get(ciclo_str, 0)
 
-        def _create_enrollments_up_to_cycle(estudiante_id: int, max_ciclo_num: int, carrera_id: int) -> int:
-            """Crea matrículas desde el ciclo I hasta el ciclo actual del estudiante"""
+        def _create_enrollments_up_to_cycle(estudiante_id: int, max_ciclo_num: int, carrera_id: int, año_ingreso: int) -> int:
+            """Crea matrículas desde el ciclo I hasta el ciclo actual del estudiante
+            Basándose en el año de ingreso del estudiante y progresión cronológica de 2 ciclos por año
+            """
             enrollments_created = 0
             try:
-                # Obtener todos los ciclos de la carrera ordenados por número
-                ciclos = db.query(Ciclo).filter(
-                    Ciclo.carrera_id == carrera_id,
-                    Ciclo.is_active == True
-                ).order_by(Ciclo.numero).all()
+                # Calcular las matrículas basándose en el año de ingreso
+                # 2 ciclos por año: I y II en primer año, III y IV en segundo año, etc.
                 
-                # Crear matrículas para cada ciclo hasta el máximo
-                for ciclo in ciclos:
-                    if ciclo.numero <= max_ciclo_num:
+                for ciclo_num in range(1, max_ciclo_num + 1):
+                    # Calcular el año correspondiente al ciclo basándose en el año de ingreso
+                    # Ciclo I y II = año de ingreso
+                    # Ciclo III y IV = año de ingreso + 1
+                    # Ciclo V y VI = año de ingreso + 2
+                    años_transcurridos = (ciclo_num - 1) // 2
+                    year = año_ingreso + años_transcurridos
+                    
+                    # Buscar el ciclo específico por número y año
+                    ciclo = db.query(Ciclo).filter(
+                        Ciclo.carrera_id == carrera_id,
+                        Ciclo.numero == ciclo_num,
+                        Ciclo.año == year,
+                        Ciclo.is_active == True
+                    ).first()
+                    
+                    if ciclo:
                         # Verificar si ya existe la matrícula
                         existing_matricula = db.query(Matricula).filter(
                             Matricula.estudiante_id == estudiante_id,
@@ -574,6 +592,8 @@ def import_students_from_excel(sheet_name: str = "student"):
                             db.add(nueva_matricula)
                             db.commit()  # Commit inmediato para asegurar secuencia
                             enrollments_created += 1
+                    else:
+                        print(f"[Matriculas] Ciclo {ciclo_num} del año {year} no encontrado para carrera {carrera_id}")
                 
                 return enrollments_created
             except Exception as e:
@@ -619,6 +639,23 @@ def import_students_from_excel(sheet_name: str = "student"):
                     if pd.notna(fn):
                         fecha_nacimiento = fn.date()
 
+                # Fecha de ingreso: dd/mm/yyyy o año
+                fi_raw = row.get("fecha de ingreso") or row.get("fecha_ingreso")
+                año_ingreso = None
+                if pd.notna(fi_raw):
+                    # Si es solo un año (ej: 2025)
+                    if isinstance(fi_raw, (int, float)) and 2020 <= fi_raw <= 2030:
+                        año_ingreso = int(fi_raw)
+                    else:
+                        # Si es una fecha completa
+                        fi = pd.to_datetime(fi_raw, dayfirst=True, errors="coerce")
+                        if pd.notna(fi):
+                            año_ingreso = fi.year
+                
+                # Si no hay fecha de ingreso, usar año actual como fallback
+                if not año_ingreso:
+                    año_ingreso = date.today().year
+
                 if not dni or len(dni) != 8 or not email or not first_name or not last_name:
                     missing_required += 1
                     skipped += 1
@@ -656,7 +693,7 @@ def import_students_from_excel(sheet_name: str = "student"):
 
                 # Crear matrículas desde ciclo I hasta el ciclo actual
                 if ciclo_actual_num > 0 and carrera_id:
-                    enrollments = _create_enrollments_up_to_cycle(new_user.id, ciclo_actual_num, carrera_id)
+                    enrollments = _create_enrollments_up_to_cycle(new_user.id, ciclo_actual_num, carrera_id, año_ingreso)
                     matriculas_created += enrollments
                     if enrollments > 0:
                         db.commit()  # Confirmar las matrículas creadas
@@ -888,7 +925,7 @@ if __name__ == "__main__":
             raise Exception("Error: no se pudo crear la estructura de la base de datos.")
 
         create_carrera_desarrollo_software()
-        cc_created, cc_skipped = create_ciclos_2025()
+        cc_created, cc_skipped = create_ciclos_2023_2025()
         tu_created, tu_skipped = create_test_users()
         st_created, st_skipped = import_students_from_excel("student")
         dc_created, dc_skipped = import_docentes_from_excel("docentes")

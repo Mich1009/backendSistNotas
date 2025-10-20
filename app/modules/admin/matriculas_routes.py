@@ -118,7 +118,7 @@ def validate_sequential_enrollment(estudiante_id: int, ciclo_id: int, db: Sessio
 @router.get("/")
 def get_matriculas(
     skip: int = Query(0, ge=0),
-    limit: int = Query(500, ge=1, le=500),
+    limit: int = Query(5000, ge=1, le=5000),
     search: Optional[str] = Query(None),
     ciclo_id: Optional[int] = Query(None),
     año: Optional[int] = Query(None),

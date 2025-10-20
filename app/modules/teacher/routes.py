@@ -162,13 +162,13 @@ def get_teacher_dashboard(
         
         if total_notas > 0:
             # Calcular promedio general
-            suma_notas = sum(nota.nota_final for nota in notas_query if nota.nota_final is not None)
+            suma_notas = sum(nota.promedio_final for nota in notas_query if nota.promedio_final is not None)
             promedio_general = round(suma_notas / total_notas, 2) if total_notas > 0 else 0
             
             # Contar aprobados y desaprobados
             for nota in notas_query:
-                if nota.nota_final is not None:
-                    if nota.nota_final >= Decimal('10.5'):
+                if nota.promedio_final is not None:
+                    if nota.promedio_final >= Decimal('10.5'):
                         estudiantes_aprobados += 1
                     else:
                         estudiantes_desaprobados += 1
