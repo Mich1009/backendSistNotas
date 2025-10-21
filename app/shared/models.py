@@ -198,6 +198,23 @@ class Nota(Base):
     def __repr__(self):
         return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, promedio_final={self.promedio_final})>"
 
+class DescripcionEvaluacion(Base):
+    __tablename__ = "descripciones_evaluacion"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
+    tipo_evaluacion = Column(String(50), nullable=False)  # evaluacion1, evaluacion2, practica1, etc.
+    descripcion = Column(Text, nullable=False)
+    fecha_evaluacion = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relaciones
+    curso = relationship("Curso")
+    
+    def __repr__(self):
+        return f"<DescripcionEvaluacion(curso_id={self.curso_id}, tipo_evaluacion={self.tipo_evaluacion})>"
+
 class HistorialNota(Base):
     __tablename__ = "historial_notas"
     
