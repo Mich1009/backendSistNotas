@@ -44,6 +44,8 @@ class CursoDocenteResponse(BaseModel):
     is_active: bool
     created_at: datetime
     ciclo_nombre: Optional[str] = None
+    fecha_inicio: Optional[date] = None  # ← NUEVO
+    fecha_fin: Optional[date] = None    # ← NUEVO
     ciclo_año: Optional[int] = None
     total_estudiantes: Optional[int] = None
     
@@ -58,6 +60,7 @@ class EstudianteEnCurso(BaseModel):
     last_name: str
     email: str
     fecha_matricula: datetime
+    phone: Optional[str] = None
     
     class Config:
         from_attributes = True

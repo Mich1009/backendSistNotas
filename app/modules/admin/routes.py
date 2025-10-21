@@ -58,7 +58,7 @@ def get_admin_dashboard(
     usuarios_inactivos = db.query(User).filter(User.is_active == False).count()
     
     # Calcular promedio general real
-    promedio_general = db.query(func.avg(Nota.nota_final)).scalar() or 0
+    promedio_general = db.query(func.avg(Nota.promedio_final)).scalar() or 0
     
     estadisticas = EstadisticasGenerales(
         total_usuarios=total_usuarios,

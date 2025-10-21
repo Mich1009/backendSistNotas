@@ -93,15 +93,15 @@ async def get_performance_metrics(
         ).count()
         
         # Promedio general del sistema
-        promedio_general = db.query(func.avg(Nota.nota_final)).scalar() or 0
+        promedio_general = db.query(func.avg(Nota.promedio_final)).scalar() or 0
         
         # Distribución de notas - simplificada para evitar errores de SQLAlchemy
         total_notas = db.query(Nota).count()
         
-        excelente = db.query(Nota).filter(Nota.nota_final >= 18).count()
-        bueno = db.query(Nota).filter(Nota.nota_final >= 14, Nota.nota_final < 18).count()
-        regular = db.query(Nota).filter(Nota.nota_final >= 11, Nota.nota_final < 14).count()
-        deficiente = db.query(Nota).filter(Nota.nota_final < 11).count()
+        excelente = db.query(Nota).filter(Nota.promedio_final >= 18).count()
+        bueno = db.query(Nota).filter(Nota.promedio_final >= 14, Nota.promedio_final < 18).count()
+        regular = db.query(Nota).filter(Nota.promedio_final >= 11, Nota.promedio_final < 14).count()
+        deficiente = db.query(Nota).filter(Nota.promedio_final < 11).count()
         
         distribucion_notas = [
             {"categoria": "Excelente (18-20)", "cantidad": excelente},

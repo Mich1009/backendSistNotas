@@ -72,7 +72,8 @@ def get_estadisticas_generales(
 
 @router.get("/rendimiento-estudiantes")
 def get_rendimiento_estudiantes(
-    ciclo_id: Optional[int] = Query(None),
+    año: Optional[int] = Query(None, description="Año para filtrar los ciclos"),
+    ciclo_numero: Optional[int] = Query(None, description="Número de ciclo (1-6)"),
     carrera_id: Optional[int] = Query(None),
     curso_id: Optional[int] = Query(None),
     db: Session = Depends(get_db)
@@ -82,12 +83,16 @@ def get_rendimiento_estudiantes(
     # Query base para notas
     query = db.query(
         User.id.label('estudiante_id'),
+        User.dni,
         User.first_name,
         User.last_name,
         Curso.nombre.label('curso_nombre'),
         Ciclo.nombre.label('ciclo_nombre'),
+        Ciclo.numero.label('ciclo_numero'),
+        Ciclo.año.label('ciclo_año'),
         Carrera.nombre.label('carrera_nombre'),
-        func.avg(Nota.nota_final).label('promedio')
+        func.avg(Nota.promedio_final).label('promedio'),
+        func.count(Nota.id).label('total_cursos')
     ).join(
         Nota, User.id == Nota.estudiante_id
     ).join(
@@ -99,12 +104,15 @@ def get_rendimiento_estudiantes(
     ).filter(
         User.role == RoleEnum.ESTUDIANTE,
         User.is_active == True,
-        Nota.nota_final.isnot(None)  # Solo incluir registros con nota final
+        Nota.promedio_final.isnot(None)  # Solo incluir registros con nota final
     )
     
     # Aplicar filtros
-    if ciclo_id:
-        query = query.filter(Ciclo.id == ciclo_id)
+    if año:
+        query = query.filter(Ciclo.año == año)
+    
+    if ciclo_numero:
+        query = query.filter(Ciclo.numero == ciclo_numero)
     
     if carrera_id:
         query = query.filter(Carrera.id == carrera_id)
@@ -114,8 +122,8 @@ def get_rendimiento_estudiantes(
     
     # Agrupar por estudiante
     resultados = query.group_by(
-        User.id, User.first_name, User.last_name,
-        Curso.nombre, Ciclo.nombre, Carrera.nombre
+        User.id, User.dni, User.first_name, User.last_name,
+        Curso.nombre, Ciclo.nombre, Ciclo.numero, Ciclo.año, Carrera.nombre
     ).all()
     
     # Procesar datos para gráficas
@@ -127,11 +135,17 @@ def get_rendimiento_estudiantes(
         
         datos_grafica.append({
             "estudiante_id": resultado.estudiante_id,
+            "dni": resultado.dni,
+            "first_name": resultado.first_name,
+            "last_name": resultado.last_name,
             "nombre_completo": f"{resultado.first_name} {resultado.last_name}",
             "curso": resultado.curso_nombre,
             "ciclo": resultado.ciclo_nombre,
+            "ciclo_numero": resultado.ciclo_numero,
+            "ciclo_año": resultado.ciclo_año,
             "carrera": resultado.carrera_nombre,
-            "promedio": promedio
+            "promedio": promedio,
+            "total_cursos": resultado.total_cursos
         })
         
         # Clasificar en rangos
@@ -153,7 +167,9 @@ def get_rendimiento_estudiantes(
 
 @router.get("/rendimiento-por-curso")
 def get_rendimiento_por_curso(
-    ciclo_id: Optional[int] = Query(None),
+    año: Optional[int] = Query(None, description="Año para filtrar los ciclos"),
+    ciclo_numero: Optional[int] = Query(None, description="Número de ciclo (1-6)"),
+    carrera_id: Optional[int] = Query(None),
     db: Session = Depends(get_db)
 ):
     """Obtener rendimiento promedio por curso"""
@@ -162,23 +178,34 @@ def get_rendimiento_por_curso(
         Curso.id,
         Curso.nombre,
         Ciclo.nombre.label('ciclo_nombre'),
-        func.avg(Nota.nota_final).label('promedio'),
+        Ciclo.numero.label('ciclo_numero'),
+        Ciclo.año.label('ciclo_año'),
+        func.avg(Nota.promedio_final).label('promedio'),
         func.count(func.distinct(Nota.estudiante_id)).label('total_estudiantes'),
         func.count(Nota.id).label('total_notas')
     ).join(
         Nota, Curso.id == Nota.curso_id
     ).join(
         Ciclo, Curso.ciclo_id == Ciclo.id
+    ).join(
+        Carrera, Ciclo.carrera_id == Carrera.id
     ).filter(
         Curso.is_active == True
     )
     
-    if ciclo_id:
-        query = query.filter(Ciclo.id == ciclo_id)
+    # Aplicar filtros
+    if año:
+        query = query.filter(Ciclo.año == año)
+    
+    if ciclo_numero:
+        query = query.filter(Ciclo.numero == ciclo_numero)
+        
+    if carrera_id:
+        query = query.filter(Carrera.id == carrera_id)
     
     resultados = query.group_by(
-        Curso.id, Curso.nombre, Ciclo.nombre
-    ).order_by(desc(func.avg(Nota.nota_final))).all()
+        Curso.id, Curso.nombre, Ciclo.nombre, Ciclo.numero, Ciclo.año
+    ).order_by(desc(func.avg(Nota.promedio_final))).all()
     
     datos_cursos = []
     for resultado in resultados:
@@ -186,6 +213,8 @@ def get_rendimiento_por_curso(
             "curso_id": resultado.id,
             "nombre": resultado.nombre,
             "ciclo": resultado.ciclo_nombre,
+            "ciclo_numero": resultado.ciclo_numero,
+            "ciclo_año": resultado.ciclo_año,
             "promedio": round(resultado.promedio, 2),
             "total_estudiantes": resultado.total_estudiantes,
             "total_notas": resultado.total_notas
@@ -249,7 +278,7 @@ def exportar_estudiantes_excel(
                 User.last_name,
                 Curso.nombre.label('curso'),
                 Ciclo.nombre.label('ciclo'),
-                Nota.nota_final,
+                Nota.promedio_final,
                 Nota.fecha_registro
             ).join(
                 Nota, User.id == Nota.estudiante_id
@@ -272,7 +301,7 @@ def exportar_estudiantes_excel(
                     "Apellidos": nota.last_name,
                     "Curso": nota.curso,
                     "Ciclo": nota.ciclo,
-                    "Nota": nota.nota_final,
+                    "Nota": nota.promedio_final,
                     "Fecha": nota.fecha_registro.replace(tzinfo=None) if nota.fecha_registro else None
                 })
             
@@ -289,6 +318,62 @@ def exportar_estudiantes_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+# ==================== FILTROS DINÁMICOS ====================
+
+@router.get("/filtros/años-ciclos")
+def get_años_ciclos_disponibles(
+    db: Session = Depends(get_db)
+):
+    """Obtener años y ciclos disponibles para filtros"""
+    
+    # Obtener años únicos disponibles
+    años_disponibles = db.query(Ciclo.año).distinct().filter(
+        Ciclo.is_active == True
+    ).order_by(Ciclo.año.desc()).all()
+    años_disponibles = [año_tuple[0] for año_tuple in años_disponibles]
+    
+    # Obtener ciclos por año
+    ciclos_por_año = {}
+    for año in años_disponibles:
+        ciclos = db.query(
+            Ciclo.numero,
+            Ciclo.nombre
+        ).filter(
+            Ciclo.año == año,
+            Ciclo.is_active == True
+        ).order_by(Ciclo.numero).all()
+        
+        ciclos_por_año[año] = [
+            {
+                "numero": ciclo.numero,
+                "nombre": ciclo.nombre,
+                "romano": convertir_a_romano(ciclo.numero)
+            }
+            for ciclo in ciclos
+        ]
+    
+    # Obtener carreras disponibles
+    carreras = db.query(
+        Carrera.id,
+        Carrera.nombre
+    ).filter(
+        Carrera.is_active == True
+    ).order_by(Carrera.nombre).all()
+    
+    carreras_disponibles = [
+        {
+            "id": carrera.id,
+            "nombre": carrera.nombre
+        }
+        for carrera in carreras
+    ]
+    
+    return {
+        "años_disponibles": años_disponibles,
+        "ciclos_por_año": ciclos_por_año,
+        "carreras_disponibles": carreras_disponibles
+    }
 
 # ==================== ESTADÍSTICAS ESPECÍFICAS ====================
 
@@ -458,7 +543,7 @@ def exportar_notas_excel(
         Curso.nombre.label('curso'),
         Ciclo.nombre.label('ciclo'),
         Carrera.nombre.label('carrera'),
-        Nota.nota_final,
+        Nota.promedio_final,
         Nota.fecha_registro,
         User.first_name.label('docente_nombre'),
         User.last_name.label('docente_apellido')
@@ -491,7 +576,7 @@ def exportar_notas_excel(
             "Carrera": nota.carrera,
             "Ciclo": nota.ciclo,
             "Curso": nota.curso,
-            "Nota": nota.nota_final,
+            "Nota": nota.promedio_final,
             "Fecha Registro": nota.fecha_registro.replace(tzinfo=None) if nota.fecha_registro else None
         })
     

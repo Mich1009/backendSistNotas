@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
+import pandas as pd
+import io
 
 from ...database import get_db
 from ..auth.dependencies import get_docente_user, get_current_active_user, get_current_user
 from ..auth.models import User, RoleEnum
 from ..auth.security import verify_password, get_password_hash
-from .models import Carrera, Ciclo, Curso, Matricula, Nota, HistorialNota
+from .models import Carrera, Ciclo, Curso, Matricula, Nota, HistorialNota, DescripcionEvaluacion
+from app.shared import email_service
 from .schemas import (
     CursoDocenteResponse, EstudianteEnCurso, EstudianteConNota,
     NotaCreate, NotaUpdate, NotaDocenteResponse, ActualizacionMasivaNotas,
@@ -162,13 +165,13 @@ def get_teacher_dashboard(
         
         if total_notas > 0:
             # Calcular promedio general
-            suma_notas = sum(nota.nota_final for nota in notas_query if nota.nota_final is not None)
+            suma_notas = sum(nota.promedio_final for nota in notas_query if nota.promedio_final is not None)
             promedio_general = round(suma_notas / total_notas, 2) if total_notas > 0 else 0
             
             # Contar aprobados y desaprobados
             for nota in notas_query:
-                if nota.nota_final is not None:
-                    if nota.nota_final >= Decimal('10.5'):
+                if nota.promedio_final is not None:
+                    if nota.promedio_final >= Decimal('10.5'):
                         estudiantes_aprobados += 1
                     else:
                         estudiantes_desaprobados += 1
@@ -256,6 +259,8 @@ def get_teacher_courses(
             "is_active": curso.is_active,
             "created_at": curso.created_at,
             "ciclo_nombre": curso.ciclo.nombre,
+            "fecha_inicio": curso.ciclo.fecha_inicio,  # ← NUEVO
+            "fecha_fin": curso.ciclo.fecha_fin,        # ← NUEVO
             "ciclo_año": curso.ciclo.año,
             "total_estudiantes": estudiantes_count
         }
@@ -343,7 +348,8 @@ def get_course_students(
             "first_name": user.first_name,
             "last_name": user.last_name,
             "email": user.email,
-            "fecha_matricula": fecha_matricula
+            "fecha_matricula": fecha_matricula,
+            "phone": user.phone
         })
     
     return estudiantes_response
@@ -692,6 +698,436 @@ def update_grade(
         "updated_at": nota.updated_at
     }
 
+# ENDPOINTS PARA DESCRIPCIONES DE EVALUACIONES
+
+@router.get("/courses/{curso_id}/evaluation-descriptions", response_model=List[dict])
+def get_evaluation_descriptions(
+    curso_id: int,
+    current_user: User = Depends(get_docente_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtener todas las descripciones de evaluaciones para un curso
+    """
+    # Verificar que el curso pertenece al docente
+    curso = db.query(Curso).filter(
+        Curso.id == curso_id,
+        Curso.docente_id == current_user.id,
+        Curso.is_active == True
+    ).first()
+    
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado o no tienes permisos para acceder"
+        )
+    
+    # Obtener todas las descripciones
+    descripciones = db.query(DescripcionEvaluacion).filter(
+        DescripcionEvaluacion.curso_id == curso_id
+    ).all()
+    
+    return [
+        {
+            "id": desc.id,
+            "tipo_evaluacion": desc.tipo_evaluacion,
+            "descripcion": desc.descripcion,
+            "fecha_evaluacion": desc.fecha_evaluacion.isoformat(),
+            "created_at": desc.created_at,
+            "updated_at": desc.updated_at
+        }
+        for desc in descripciones
+    ]
+
+@router.post("/courses/{curso_id}/evaluation-descriptions", response_model=dict)
+def create_or_update_evaluation_description(
+    curso_id: int,
+    request_data: dict,
+    current_user: User = Depends(get_docente_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Crear o actualizar la descripción de una evaluación
+    """
+    # Verificar que el curso pertenece al docente
+    curso = db.query(Curso).filter(
+        Curso.id == curso_id,
+        Curso.docente_id == current_user.id,
+        Curso.is_active == True
+    ).first()
+    
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado o no tienes permisos para acceder"
+        )
+    
+    # Validar datos requeridos
+    if not request_data.get("tipo_evaluacion") or not request_data.get("descripcion"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Se requieren tipo_evaluacion y descripcion"
+        )
+    
+    tipo_evaluacion = request_data["tipo_evaluacion"]
+    descripcion = request_data["descripcion"]
+    fecha_evaluacion = request_data.get("fecha_evaluacion")
+    
+    # Parsear fecha si se proporciona
+    if fecha_evaluacion:
+        try:
+            from datetime import datetime
+            fecha_evaluacion = datetime.strptime(fecha_evaluacion, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Formato de fecha inválido. Use YYYY-MM-DD"
+            )
+    else:
+        from datetime import date
+        fecha_evaluacion = date.today()
+    
+    # Buscar si ya existe una descripción para este tipo de evaluación
+    descripcion_existente = db.query(DescripcionEvaluacion).filter(
+        DescripcionEvaluacion.curso_id == curso_id,
+        DescripcionEvaluacion.tipo_evaluacion == tipo_evaluacion
+    ).first()
+    
+    if descripcion_existente:
+        # Actualizar descripción existente
+        descripcion_existente.descripcion = descripcion
+        descripcion_existente.fecha_evaluacion = fecha_evaluacion
+        descripcion_existente.updated_at = func.now()
+        accion = "actualizada"
+        descripcion_obj = descripcion_existente
+    else:
+        # Crear nueva descripción
+        nueva_descripcion = DescripcionEvaluacion(
+            curso_id=curso_id,
+            tipo_evaluacion=tipo_evaluacion,
+            descripcion=descripcion,
+            fecha_evaluacion=fecha_evaluacion
+        )
+        db.add(nueva_descripcion)
+        accion = "creada"
+        descripcion_obj = nueva_descripcion
+    
+    db.commit()
+    db.refresh(descripcion_obj)
+    
+    return {
+        "mensaje": f"Descripción {accion} exitosamente",
+        "id": descripcion_obj.id,
+        "tipo_evaluacion": descripcion_obj.tipo_evaluacion,
+        "descripcion": descripcion_obj.descripcion,
+        "fecha_evaluacion": descripcion_obj.fecha_evaluacion.isoformat(),
+        "created_at": descripcion_obj.created_at,
+        "updated_at": descripcion_obj.updated_at
+    }
+
+@router.delete("/courses/{curso_id}/evaluation-descriptions/{tipo_evaluacion}")
+def delete_evaluation_description(
+    curso_id: int,
+    tipo_evaluacion: str,
+    current_user: User = Depends(get_docente_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar la descripción de una evaluación
+    """
+    # Verificar que el curso pertenece al docente
+    curso = db.query(Curso).filter(
+        Curso.id == curso_id,
+        Curso.docente_id == current_user.id,
+        Curso.is_active == True
+    ).first()
+    
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado o no tienes permisos para acceder"
+        )
+    
+    # Buscar la descripción
+    descripcion = db.query(DescripcionEvaluacion).filter(
+        DescripcionEvaluacion.curso_id == curso_id,
+        DescripcionEvaluacion.tipo_evaluacion == tipo_evaluacion
+    ).first()
+    
+    if not descripcion:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Descripción no encontrada"
+        )
+    
+    db.delete(descripcion)
+    db.commit()
+    
+    return {"mensaje": "Descripción eliminada exitosamente"}
+
+# CARGA DE NOTAS DESDE EXCEL
+@router.post("/courses/{curso_id}/grades/upload-excel", response_model=dict)
+def upload_grades_from_excel(
+    curso_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_docente_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cargar notas desde un archivo Excel
+    """
+    print(f"📊 Procesando archivo Excel: {file.filename}")
+    
+    # Verificar que el curso pertenece al docente
+    curso = db.query(Curso).filter(
+        Curso.id == curso_id,
+        Curso.docente_id == current_user.id,
+        Curso.is_active == True
+    ).first()
+    
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado o no tienes permisos para acceder"
+        )
+    
+    # Verificar que el archivo es Excel
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo debe ser un Excel (.xlsx o .xls)"
+        )
+    
+    try:
+        # Leer el archivo Excel
+        contents = file.file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        
+        print(f"📋 Archivo Excel leído: {len(df)} filas, {len(df.columns)} columnas")
+        print(f"📋 Columnas encontradas: {list(df.columns)}")
+        
+        # Validar formato del Excel
+        required_columns = ['DNI', 'NOMBRE', 'APELLIDO']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Faltan columnas requeridas: {missing_columns}. Formato esperado: DNI, NOMBRE, APELLIDO, EVALUACION1, EVALUACION2, etc."
+            )
+        
+        # Procesar cada fila del Excel
+        notas_procesadas = []
+        errores = []
+        
+        for index, row in df.iterrows():
+            try:
+                dni = str(row['DNI']).strip()
+                nombre = str(row['NOMBRE']).strip()
+                apellido = str(row['APELLIDO']).strip()
+                
+                # Buscar estudiante por DNI
+                estudiante = db.query(User).filter(
+                    User.dni == dni,
+                    User.role == RoleEnum.ESTUDIANTE,
+                    User.is_active == True
+                ).first()
+                
+                if not estudiante:
+                    errores.append(f"Fila {index + 2}: Estudiante con DNI {dni} no encontrado")
+                    continue
+                
+                # Verificar que el estudiante está matriculado en el ciclo del curso
+                matricula = db.query(Matricula).filter(
+                    Matricula.estudiante_id == estudiante.id,
+                    Matricula.ciclo_id == curso.ciclo_id,
+                    Matricula.is_active == True
+                ).first()
+                
+                if not matricula:
+                    errores.append(f"Fila {index + 2}: Estudiante {nombre} {apellido} no está matriculado en este ciclo")
+                    continue
+                
+                # Preparar datos de nota
+                nota_data = {
+                    'estudiante_id': estudiante.id,
+                    'curso_id': curso_id,
+                    'tipo_evaluacion': 'EVALUACION',
+                    'fecha_evaluacion': datetime.now().date(),
+                    'peso': Decimal('1.0')
+                }
+                
+                # Procesar columnas de notas
+                campos_nota = ['evaluacion1', 'evaluacion2', 'evaluacion3', 'evaluacion4',
+                             'evaluacion5', 'evaluacion6', 'evaluacion7', 'evaluacion8',
+                             'practica1', 'practica2', 'practica3', 'practica4',
+                             'parcial1', 'parcial2']
+                
+                notas_encontradas = False
+                for campo in campos_nota:
+                    columna_excel = campo.upper()
+                    if columna_excel in df.columns:
+                        valor = row[columna_excel]
+                        if pd.notna(valor) and str(valor).strip() != '':
+                            try:
+                                nota_valor = float(valor)
+                                if 0 <= nota_valor <= 20:  # Validar rango de notas
+                                    nota_data[campo] = nota_valor
+                                    notas_encontradas = True
+                                else:
+                                    errores.append(f"Fila {index + 2}: Nota {nota_valor} fuera del rango (0-20)")
+                            except ValueError:
+                                errores.append(f"Fila {index + 2}: Valor inválido en {columna_excel}: {valor}")
+                
+                if not notas_encontradas:
+                    errores.append(f"Fila {index + 2}: No se encontraron notas válidas para {nombre} {apellido}")
+                    continue
+                
+                # Buscar si ya existe una nota para este estudiante
+                nota_existente = db.query(Nota).filter(
+                    Nota.estudiante_id == estudiante.id,
+                    Nota.curso_id == curso_id,
+                    Nota.tipo_evaluacion == 'EVALUACION'
+                ).first()
+                
+                if nota_existente:
+                    # Actualizar nota existente
+                    actualizar_campos_nota_dict(nota_existente, nota_data)
+                    notas_procesadas.append({
+                        'estudiante': f"{nombre} {apellido}",
+                        'dni': dni,
+                        'accion': 'actualizada'
+                    })
+                else:
+                    # Crear nueva nota
+                    nueva_nota = Nota(
+                        estudiante_id=estudiante.id,
+                        curso_id=curso_id,
+                        tipo_evaluacion='EVALUACION',
+                        fecha_evaluacion=datetime.now().date(),
+                        peso=Decimal('1.0')
+                    )
+                    actualizar_campos_nota_dict(nueva_nota, nota_data)
+                    db.add(nueva_nota)
+                    notas_procesadas.append({
+                        'estudiante': f"{nombre} {apellido}",
+                        'dni': dni,
+                        'accion': 'creada'
+                    })
+                
+            except Exception as e:
+                errores.append(f"Fila {index + 2}: Error procesando datos - {str(e)}")
+        
+        # Guardar cambios en la base de datos
+        db.commit()
+        
+        resultado = {
+            "mensaje": "Archivo Excel procesado exitosamente",
+            "notas_procesadas": len(notas_procesadas),
+            "errores": errores,
+            "detalles": notas_procesadas[:10],  # Mostrar solo las primeras 10
+            "total_filas": len(df)
+        }
+        
+        print(f"✅ Procesamiento completado: {len(notas_procesadas)} notas procesadas, {len(errores)} errores")
+        return resultado
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error procesando Excel: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error procesando archivo Excel: {str(e)}"
+        )
+
+@router.get("/courses/{curso_id}/grades/excel-template")
+def download_excel_template(
+    curso_id: int,
+    current_user: User = Depends(get_docente_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Descargar plantilla Excel para cargar notas
+    """
+    # Verificar que el curso pertenece al docente
+    curso = db.query(Curso).filter(
+        Curso.id == curso_id,
+        Curso.docente_id == current_user.id,
+        Curso.is_active == True
+    ).first()
+    
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado o no tienes permisos para acceder"
+        )
+    
+    # Obtener estudiantes matriculados en el curso
+    estudiantes = db.query(User).join(Matricula).filter(
+        Matricula.ciclo_id == curso.ciclo_id,
+        Matricula.is_active == True,
+        User.role == RoleEnum.ESTUDIANTE,
+        User.is_active == True
+    ).all()
+    
+    # Crear DataFrame con plantilla
+    data = []
+    for estudiante in estudiantes:
+        data.append({
+            'DNI': estudiante.dni,
+            'NOMBRE': estudiante.first_name,
+            'APELLIDO': estudiante.last_name,
+            'EVALUACION1': '',
+            'EVALUACION2': '',
+            'EVALUACION3': '',
+            'EVALUACION4': '',
+            'EVALUACION5': '',
+            'EVALUACION6': '',
+            'EVALUACION7': '',
+            'EVALUACION8': '',
+            'PRACTICA1': '',
+            'PRACTICA2': '',
+            'PRACTICA3': '',
+            'PRACTICA4': '',
+            'PARCIAL1': '',
+            'PARCIAL2': ''
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # Crear archivo Excel en memoria
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Notas', index=False)
+        
+        # Obtener la hoja de trabajo para formatear
+        worksheet = writer.sheets['Notas']
+        
+        # Ajustar ancho de columnas
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 20)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+    
+    output.seek(0)
+    
+    # Crear respuesta con el archivo
+    from fastapi.responses import StreamingResponse
+    
+    return StreamingResponse(
+        io.BytesIO(output.read()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=plantilla_notas_{curso.nombre.replace(' ', '_')}.xlsx"}
+    )
+
+# REGISTRA NOTAS DE ESTUDIANTES
 @router.post("/courses/{curso_id}/grades/bulk", response_model=dict)
 def update_grades_bulk(
     curso_id: int,
@@ -771,6 +1207,16 @@ def update_grades_bulk(
                 Nota.tipo_evaluacion == tipo_evaluacion
             ).first()
             
+            # Capturar valores anteriores ANTES de actualizar
+            valores_anteriores = {}
+            if nota_existente:
+                campos_nota = ['evaluacion1', 'evaluacion2', 'evaluacion3', 'evaluacion4',
+                             'evaluacion5', 'evaluacion6', 'evaluacion7', 'evaluacion8',
+                             'practica1', 'practica2', 'practica3', 'practica4',
+                             'parcial1', 'parcial2']
+                for campo in campos_nota:
+                    valores_anteriores[campo] = getattr(nota_existente, campo, None)
+            
             if nota_existente:
                 # Actualizar nota existente
                 print(f"🔄 Actualizando nota existente para estudiante {estudiante_id}")
@@ -803,6 +1249,102 @@ def update_grades_bulk(
                 cambios="Actualización masiva",
                 usuario_id=current_user.id
             )
+            
+            # 📧 ENVIAR EMAIL DE NOTIFICACIÓN AL ESTUDIANTE
+            try:
+                # Obtener datos del estudiante
+                estudiante = db.query(User).filter(User.id == estudiante_id).first()
+                if estudiante and estudiante.email:
+                    # Identificar qué nota específica se acaba de registrar
+                    nota_enviada = None
+                    tipo_evaluacion_enviada = None
+                    nombre_nota = None
+                    descripcion = None
+                    
+                    # Mapeo completo de campos a información detallada
+                    campos_nota = {
+                        'evaluacion1': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 1'},
+                        'evaluacion2': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 2'},
+                        'evaluacion3': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 3'},
+                        'evaluacion4': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 4'},
+                        'evaluacion5': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 5'},
+                        'evaluacion6': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 6'},
+                        'evaluacion7': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 7'},
+                        'evaluacion8': {'tipo': 'EVALUACIÓN', 'nombre': 'EVALUACIÓN 8'},
+                        'practica1': {'tipo': 'PRÁCTICA', 'nombre': 'PRÁCTICA 1'},
+                        'practica2': {'tipo': 'PRÁCTICA', 'nombre': 'PRÁCTICA 2'},
+                        'practica3': {'tipo': 'PRÁCTICA', 'nombre': 'PRÁCTICA 3'},
+                        'practica4': {'tipo': 'PRÁCTICA', 'nombre': 'PRÁCTICA 4'},
+                        'parcial1': {'tipo': 'PARCIAL', 'nombre': 'PARCIAL 1'},
+                        'parcial2': {'tipo': 'PARCIAL', 'nombre': 'PARCIAL 2'}
+                    }
+                    
+                    # Debug: mostrar datos recibidos
+                    print(f"🔍 DEBUG - Datos recibidos para estudiante {estudiante_id}:")
+                    print(f"   nota_item: {nota_item}")
+                    print(f"   valores_anteriores: {valores_anteriores}")
+                    
+                    # Buscar qué campo específico cambió comparando valores anteriores vs nuevos
+                    campo_cambiado = None
+                    for campo_db, info in campos_nota.items():
+                        valor_nuevo = nota_item.get(campo_db)
+                        valor_anterior = valores_anteriores.get(campo_db)
+                        
+                        print(f"   🔍 {campo_db}: nuevo={valor_nuevo}, anterior={valor_anterior}")
+                        
+                        # Verificar si hay un cambio en este campo
+                        if valor_nuevo is not None and valor_nuevo != '':
+                            try:
+                                valor_nuevo_float = float(valor_nuevo)
+                                valor_anterior_float = float(valor_anterior) if valor_anterior else None
+                                
+                                print(f"   📊 {campo_db}: nuevo_float={valor_nuevo_float}, anterior_float={valor_anterior_float}")
+                                
+                                # Si es una nueva nota o cambió el valor
+                                if valor_anterior_float is None or valor_nuevo_float != valor_anterior_float:
+                                    print(f"   ✅ CAMBIO DETECTADO en {campo_db}: {valor_anterior_float} → {valor_nuevo_float}")
+                                    campo_cambiado = campo_db
+                                    nota_enviada = valor_nuevo_float
+                                    tipo_evaluacion_enviada = info['tipo']
+                                    nombre_nota = info['nombre']
+                                    
+                                    # Obtener descripción específica de esta evaluación
+                                    descripcion_evaluacion = db.query(DescripcionEvaluacion).filter(
+                                        DescripcionEvaluacion.curso_id == curso_id,
+                                        DescripcionEvaluacion.tipo_evaluacion == campo_db
+                                    ).first()
+                                    
+                                    descripcion = descripcion_evaluacion.descripcion if descripcion_evaluacion else None
+                                    break
+                            except (ValueError, TypeError) as e:
+                                print(f"   ⚠️ Error convirtiendo {campo_db}: {e}")
+                                continue
+                    
+                    # Solo enviar email si hay una nota válida específica que cambió
+                    if nota_enviada is not None and tipo_evaluacion_enviada and campo_cambiado:
+                        # Enviar email
+                        email_enviado = email_service.send_grade_notification(
+                            student_email=estudiante.email,
+                            student_name=estudiante.full_name,
+                            course_name=curso.nombre,
+                            evaluation_type=f"{tipo_evaluacion_enviada} - {nombre_nota}",
+                            grade_value=nota_enviada,
+                            evaluation_date=nota.fecha_evaluacion.strftime("%d/%m/%Y") if nota.fecha_evaluacion else datetime.now().strftime("%d/%m/%Y"),
+                            description=descripcion
+                        )
+                        
+                        if email_enviado:
+                            print(f"📧 Email enviado exitosamente a {estudiante.email} - {tipo_evaluacion_enviada} {nombre_nota}: {nota_enviada}")
+                        else:
+                            print(f"❌ Error al enviar email a {estudiante.email}")
+                    else:
+                        print(f"⚠️ No se encontró cambio específico en notas para enviar email al estudiante {estudiante_id}")
+                else:
+                    print(f"⚠️ Estudiante {estudiante_id} no tiene email configurado")
+                    
+            except Exception as email_error:
+                print(f"❌ Error al enviar email: {email_error}")
+                # No interrumpir el proceso por errores de email
             
             print(f"✅ Nota procesada exitosamente para estudiante {estudiante_id}")
             
@@ -1198,6 +1740,45 @@ def actualizar_nota(
             cambios=" | ".join(cambios),
             usuario_id=current_user.id
         )
+        
+        # Enviar email por cada campo de nota actualizado
+        try:
+            # Obtener información del estudiante y curso
+            estudiante = db.query(User).filter(User.id == nota.estudiante_id).first()
+            curso = db.query(Curso).filter(Curso.id == nota.curso_id).first()
+            
+            # Procesar cada cambio para enviar emails individuales
+            for cambio in cambios:
+                campo_nombre = cambio.split(":")[0].strip()
+                nuevo_valor = cambio.split("→")[1].strip()
+                
+                # Solo enviar email si es un campo de nota (no observaciones, estado, etc.)
+                if campo_nombre in ['evaluacion1', 'evaluacion2', 'evaluacion3', 'evaluacion4',
+                                  'evaluacion5', 'evaluacion6', 'evaluacion7', 'evaluacion8',
+                                  'practica1', 'practica2', 'practica3', 'practica4',
+                                  'parcial1', 'parcial2']:
+                    
+                    # Obtener descripción si existe
+                    descripcion_obj = db.query(DescripcionEvaluacion).filter(
+                        DescripcionEvaluacion.curso_id == nota.curso_id,
+                        DescripcionEvaluacion.tipo_evaluacion == campo_nombre
+                    ).first()
+                    
+                    descripcion = descripcion_obj.descripcion if descripcion_obj else None
+                    
+                    # Enviar email
+                    email_service.send_grade_notification(
+                        student_email=estudiante.email,
+                        student_name=f"{estudiante.first_name} {estudiante.last_name}",
+                        course_name=curso.nombre,
+                        evaluation_type=campo_nombre,
+                        grade=float(nuevo_valor),
+                        evaluation_date=nota.fecha_evaluacion,
+                        description=descripcion
+                    )
+        except Exception as e:
+            # Log del error pero no fallar la actualización
+            print(f"Error enviando email: {str(e)}")
     
     # Obtener información del estudiante para la respuesta
     estudiante = db.query(User).filter(User.id == nota.estudiante_id).first()
