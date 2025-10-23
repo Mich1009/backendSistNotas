@@ -64,7 +64,7 @@ class PasswordReset(BaseModel):
     email: EmailStr
 
 class PasswordResetConfirm(BaseModel):
-    token: str
+    verification_token: str  # token largo de verificación
     new_password: str
     
     @validator('new_password')
@@ -82,3 +82,13 @@ class ChangePassword(BaseModel):
         if len(v) < 6:
             raise ValueError('La contraseña debe tener al menos 6 caracteres')
         return v
+    
+class TokenVerificationRequest(BaseModel):
+    token: str  # identificator_token de la URL
+
+class TokenVerificationResponse(BaseModel):
+    valid: bool
+    message: str
+    verification_token: Optional[str] = None  # token para cambiar contraseña
+    email: Optional[str] = None
+

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from ...database import get_db
 from .models import User, PasswordResetToken
-from .schemas import UserLogin, Token, UserResponse, PasswordReset, PasswordResetConfirm, ChangePassword, UserUpdate
+from .schemas import UserLogin, Token, UserResponse, PasswordReset, PasswordResetConfirm, ChangePassword, UserUpdate, TokenVerificationResponse, TokenVerificationRequest
 from .security import verify_password, get_password_hash, create_access_token, verify_password_reset_token, create_password_reset_token
 from .dependencies import get_current_active_user
 from ...shared.email_recuperacion import email_recuperacion
@@ -66,26 +66,35 @@ def request_password_reset(password_reset: PasswordReset, db: Session = Depends(
     if user:
         print(f"🎯 DEBUG: Usuario encontrado: {user.email}")
         
-        reset_token = create_password_reset_token(user.email)
-        print(f"🎯 DEBUG: Token generado: {reset_token}")
+        import secrets
+        
+        # ✅ GENERAR DOS TOKENS
+        identificator_token = secrets.token_urlsafe(16)  # Corto para URL
+        verification_token = secrets.token_urlsafe(32)   # Largo para verificación
+        
+        print(f"🎯 DEBUG: Identificator Token: {identificator_token}")
+        print(f"🎯 DEBUG: Verification Token: {verification_token}")
         
         db_token = PasswordResetToken(
             user_id=user.id,
-            token=reset_token,
+            identificator_token=identificator_token,
+            token=verification_token,
             expires_at=datetime.utcnow() + timedelta(hours=1)
         )
         db.add(db_token)
         db.commit()
-        print("🎯 DEBUG: Token guardado en BD")
+        print("🎯 DEBUG: Tokens guardados en BD")
         
-        # ✅ ESTO DEBE IMPRIMIRSE
-        print("🔐" * 30)
-        print(f"🎯 TOKEN PARA COPIAR: {reset_token}")
+        # ✅ IMPRIMIR PARA PRUEBAS
+        print("🔐" * 40)
+        print(f"🎯 IDENTIFICATOR TOKEN (URL): {identificator_token}")
+        print(f"🎯 VERIFICATION TOKEN: {verification_token}")
         print(f"📧 EMAIL: {user.email}")
-        print("🔐" * 30)
+        print("🔐" * 40)
         
-        # Enviar email
-        email_recuperacion.send_password_reset_email(user.email, reset_token)
+        # Enviar email con el identificator_token en la URL
+        reset_url = f"http://localhost:5173/password-reset?token={identificator_token}"
+        email_recuperacion.send_password_reset_email(user.email, reset_url)
         
     else:
         print(f"🎯 DEBUG: Usuario NO encontrado para: {password_reset.email}")
@@ -94,62 +103,65 @@ def request_password_reset(password_reset: PasswordReset, db: Session = Depends(
 
 @router.post("/password-reset/confirm")
 def confirm_password_reset(password_reset_confirm: PasswordResetConfirm, db: Session = Depends(get_db)):
-    try:
-        # ✅ VERIFICAR TOKEN JWT (CON MANEJO DE ERRORES)
-        email = verify_password_reset_token(password_reset_confirm.token)
-    except HTTPException:
-        raise HTTPException(status_code=400, detail="Token inválido o expirado")
+    """Cambiar contraseña usando el verification_token"""
     
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    # ✅ VERIFICAR EN TABLA PasswordResetToken (NUEVO)
+    # Buscar por verification_token
     db_token = db.query(PasswordResetToken).filter(
-        PasswordResetToken.token == password_reset_confirm.token,
-        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.token == password_reset_confirm.verification_token,
         PasswordResetToken.expires_at > datetime.utcnow(),
         PasswordResetToken.used == False
     ).first()
     
     if not db_token:
-        raise HTTPException(status_code=400, detail="Token inválido o ya utilizado")
+        raise HTTPException(status_code=400, detail="Token de verificación inválido o expirado")
     
-    # ✅ MARCAR TOKEN COMO USADO (NUEVO)
+    # Marcar token como usado
     db_token.used = True
     
-    user.hashed_password = get_password_hash(password_reset_confirm.new_password)
+    # Actualizar contraseña
+    db_token.user.hashed_password = get_password_hash(password_reset_confirm.new_password)
     db.commit()
     
     return {"message": "Contraseña actualizada exitosamente"}
 
-@router.post("/password-reset/verify-token")
-def verify_reset_token(token_data: dict, db: Session = Depends(get_db)):
-    """Verificar si un token de recuperación es válido"""
-    try:
-        email = verify_password_reset_token(token_data["token"])
-        user = db.query(User).filter(User.email == email).first()
-        
-        if not user:
-            return {"valid": False, "message": "Usuario no encontrado"}
-        
-        # Verificar en la tabla de tokens
-        db_token = db.query(PasswordResetToken).filter(
-            PasswordResetToken.token == token_data["token"],
-            PasswordResetToken.user_id == user.id,
-            PasswordResetToken.expires_at > datetime.utcnow(),
-            PasswordResetToken.used == False
-        ).first()
-        
-        return {
-            "valid": db_token is not None,
-            "email": email if db_token else None,
-            "message": "Token válido" if db_token else "Token inválido o expirado"
-        }
-        
-    except HTTPException:
-        return {"valid": False, "message": "Token inválido"}
+@router.post("/password-reset/verify", response_model=TokenVerificationResponse)
+def verify_reset_token(token_data: TokenVerificationRequest, db: Session = Depends(get_db)):
+    """Verificar si un identificator_token es válido y obtener el verification_token"""
     
+    print("🎯 DEBUG: Llegó request a /verify")
+    print(f"🎯 DEBUG: token_data recibido: {token_data}")
+    print(f"🎯 DEBUG: token_data.token: {token_data.token}")
+    print(f"🎯 DEBUG: Tipo de token: {type(token_data.token)}")
+
+    #identificator_token = token_data.get("token")
+    
+    if not token_data.token:
+        print("❌ DEBUG: Token vacío o None")
+        return TokenVerificationResponse(
+            valid=False, 
+            message="Token no proporcionado"
+        )
+    
+    # Buscar por identificator_token
+    db_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.identificator_token == token_data.token,
+        PasswordResetToken.expires_at > datetime.utcnow(),
+        PasswordResetToken.used == False
+    ).first()
+    
+    if not db_token:
+        return TokenVerificationResponse(
+            valid=False, 
+            message="Token inválido o expirado"
+        )
+    
+    return TokenVerificationResponse(
+        valid=True,
+        message="Token válido",
+        verification_token=db_token.token,  # Este se usa para cambiar la contraseña
+        email=db_token.user.email
+    )
+
 @router.post("/change-password")
 def change_password(
     password_change: ChangePassword,

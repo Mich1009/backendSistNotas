@@ -10,7 +10,7 @@ class EmailRecuperacionService:
         self.smtp_username = settings.smtp_username
         self.smtp_password = settings.smtp_password
     
-    def send_password_reset_email(self, to_email: str, reset_token: str):
+    def send_password_reset_email(self, to_email: str, reset_url: str):
         """Enviar email con token de recuperación"""
         
         # Verificar si la configuración SMTP está completa
@@ -18,7 +18,7 @@ class EmailRecuperacionService:
             print(f"❌ Configuración SMTP incompleta en .env")
             print(f"   SMTP_USERNAME: {'✅ Configurado' if self.smtp_username else '❌ Faltante'}")
             print(f"   SMTP_PASSWORD: {'✅ Configurado' if self.smtp_password else '❌ Faltante'}")
-            print(f"🔐 Token de recuperación para {to_email}: {reset_token}")
+            print(f"🔐 Token de recuperación para {to_email}: {reset_url}")
             return False
         
         try:
@@ -60,9 +60,13 @@ class EmailRecuperacionService:
                         <p>Utiliza el siguiente código para continuar:</p>
                         
                         <div class="token">
-                            {reset_token}
+                            <a href= "{reset_url}"> ingresa aqui</a>
+                            
                         </div>
-                        
+                        <p>O copia y pega este enlace en tu navegador:</p>
+                            <div class="url-box">
+                                {reset_url}
+                            </div>
                         <div class="info-box">
                             <p><strong>⚠️ Importante:</strong> Este código es válido por <strong>1 hora</strong>.</p>
                             <p>Si no solicitaste este cambio, ignora este mensaje.</p>
@@ -88,7 +92,9 @@ class EmailRecuperacionService:
             
             Has solicitado restablecer tu contraseña.
             
-            Tu código de verificación es: {reset_token}
+            pPara continuar haz click en el siguiente enlace
+             
+            {reset_url}
             
             ⚠️ Este código expira en 1 hora.
             
@@ -118,11 +124,11 @@ class EmailRecuperacionService:
             
         except smtplib.SMTPAuthenticationError:
             print(f"❌ Error de autenticación - Verifica tu App Password")
-            print(f"🔐 Token (fallback): {reset_token}")
+            print(f"🔐 Token (fallback): {reset_url}")
             return False
         except Exception as e:
             print(f"❌ Error enviando email: {str(e)}")
-            print(f"🔐 Token (fallback): {reset_token}")
+            print(f"🔐 Token (fallback): {reset_url}")
             return False
 
 # Instancia global
