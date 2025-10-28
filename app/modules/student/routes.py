@@ -8,6 +8,7 @@ from ...database import get_db
 from ..auth.dependencies import get_estudiante_user, get_current_active_user
 from ..auth.models import User, RoleEnum
 from .models import Carrera, Ciclo, Curso, Matricula, Nota
+from ...shared.grade_calculator import GradeCalculator
 from .schemas import (
     CarreraResponse, CicloResponse, CursoEstudianteResponse, 
     MatriculaResponse,
@@ -102,8 +103,9 @@ def get_student_dashboard(
                 "parcial1": float(nota.parcial1) if nota.parcial1 else None,
                 "parcial2": float(nota.parcial2) if nota.parcial2 else None,
                 
-                "promedio_final": float(nota.promedio_final) if nota.promedio_final else None,
-                "estado": nota.estado,
+                # Calcular promedio final usando el método del modelo
+                "promedio_final": float(nota.calcular_promedio_final()) if nota.calcular_promedio_final() else None,
+                "estado": nota.obtener_estado(),
                 "fecha_actualizacion": nota.updated_at.isoformat() if nota.updated_at else nota.created_at.isoformat()
             })
 
@@ -141,7 +143,7 @@ def get_student_dashboard(
                     promedio_curso = sum(todas_notas_curso) / len(todas_notas_curso)
                     promedios_por_curso.append(promedio_curso)
                     
-                    if promedio_curso >= 10.5:
+                    if promedio_curso >= 13.0:
                         cursos_aprobados += 1
 
         # Calcular promedio general
@@ -275,37 +277,18 @@ def get_student_grades(
         # Convertir a formato de respuesta
         notas_response = []
         for nota in notas:
-            # Calcular promedio automáticamente si no existe
-            promedio_final = nota.promedio_final
-            if promedio_final is None:
-                # Calcular promedio basado en las notas existentes
-                all_grades = []
-                
-                # Evaluaciones
-                for i in range(1, 9):
-                    eval_grade = getattr(nota, f'evaluacion{i}')
-                    if eval_grade is not None:
-                        all_grades.append(float(eval_grade))
-                
-                # Prácticas
-                for i in range(1, 5):
-                    prac_grade = getattr(nota, f'practica{i}')
-                    if prac_grade is not None:
-                        all_grades.append(float(prac_grade))
-                
-                # Parciales
-                for i in range(1, 3):
-                    par_grade = getattr(nota, f'parcial{i}')
-                    if par_grade is not None:
-                        all_grades.append(float(par_grade))
-                
-                if all_grades:
-                    promedio_final = sum(all_grades) / len(all_grades)
+            # Calcular promedio usando el método del modelo
+            promedio_final = nota.calcular_promedio_final()
             
-            # Determinar estado
-            estado = nota.estado
-            if estado is None and promedio_final is not None:
-                estado = "APROBADO" if promedio_final >= 10.5 else "DESAPROBADO"
+            # Determinar estado usando el método del modelo
+            estado = nota.obtener_estado()
+            
+            # Calcular promedios por tipo usando GradeCalculator
+            promedio_evaluaciones = GradeCalculator.calcular_promedio_evaluaciones(nota)
+            promedio_practicas = GradeCalculator.calcular_promedio_practicas(nota)
+            promedio_parciales = GradeCalculator.calcular_promedio_parciales(nota)
+            promedio_final = nota.calcular_promedio_final()
+            estado = nota.obtener_estado()
             
             nota_data = NotaEstudianteResponse(
                 id=nota.id,
@@ -313,33 +296,37 @@ def get_student_grades(
                 curso_nombre=nota.curso.nombre,
                 docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
                 ciclo_nombre=nota.curso.ciclo.nombre if nota.curso.ciclo else "Sin ciclo",
-                tipo_evaluacion=nota.tipo_evaluacion,
+                ciclo_año=nota.curso.ciclo.año if nota.curso.ciclo else None,
                 
-                # Campos del sistema nuevo
-                evaluacion1=nota.evaluacion1,
-                evaluacion2=nota.evaluacion2,
-                evaluacion3=nota.evaluacion3,
-                evaluacion4=nota.evaluacion4,
-                evaluacion5=nota.evaluacion5,
-                evaluacion6=nota.evaluacion6,
-                evaluacion7=nota.evaluacion7,
-                evaluacion8=nota.evaluacion8,
+                # Promedios por tipo de evaluación
+                promedio_evaluaciones=float(promedio_evaluaciones) if promedio_evaluaciones else None,
+                promedio_practicas=float(promedio_practicas) if promedio_practicas else None,
+                promedio_parciales=float(promedio_parciales) if promedio_parciales else None,
                 
-                practica1=nota.practica1,
-                practica2=nota.practica2,
-                practica3=nota.practica3,
-                practica4=nota.practica4,
-                
-                parcial1=nota.parcial1,
-                parcial2=nota.parcial2,
-                
-                promedio_final=promedio_final,
+                # Promedio final ponderado
+                promedio_final=float(promedio_final) if promedio_final else None,
                 estado=estado,
                 
-                peso=nota.peso,
-                fecha_evaluacion=nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-                observaciones=nota.observaciones,
-                created_at=nota.created_at
+                # Notas individuales
+                evaluacion1=float(nota.evaluacion1) if nota.evaluacion1 else None,
+                evaluacion2=float(nota.evaluacion2) if nota.evaluacion2 else None,
+                evaluacion3=float(nota.evaluacion3) if nota.evaluacion3 else None,
+                evaluacion4=float(nota.evaluacion4) if nota.evaluacion4 else None,
+                evaluacion5=float(nota.evaluacion5) if nota.evaluacion5 else None,
+                evaluacion6=float(nota.evaluacion6) if nota.evaluacion6 else None,
+                evaluacion7=float(nota.evaluacion7) if nota.evaluacion7 else None,
+                evaluacion8=float(nota.evaluacion8) if nota.evaluacion8 else None,
+                
+                practica1=float(nota.practica1) if nota.practica1 else None,
+                practica2=float(nota.practica2) if nota.practica2 else None,
+                practica3=float(nota.practica3) if nota.practica3 else None,
+                practica4=float(nota.practica4) if nota.practica4 else None,
+                
+                parcial1=float(nota.parcial1) if nota.parcial1 else None,
+                parcial2=float(nota.parcial2) if nota.parcial2 else None,
+                
+                fecha_registro=nota.fecha_registro,
+                observaciones=nota.observaciones
             )
             notas_response.append(nota_data)
         
@@ -379,6 +366,12 @@ def get_student_grades_filters(
             User.role == "docente"
         ).distinct().all()
         
+        # Obtener años únicos de los ciclos
+        años_query = db.query(Ciclo.año).join(Curso).join(Nota).filter(
+            Nota.estudiante_id == current_user.id,
+            Ciclo.año.isnot(None)
+        ).distinct().order_by(Ciclo.año.desc()).all()
+        
         cursos_filters = [
             {
                 "id": curso.id,
@@ -405,10 +398,18 @@ def get_student_grades_filters(
             for docente in docentes
         ]
         
+        años_filters = [
+            {
+                "año": año[0]
+            }
+            for año in años_query if año[0]
+        ]
+        
         return {
             "cursos": cursos_filters,
             "ciclos": ciclos_filters,
-            "docentes": docentes_filters
+            "docentes": docentes_filters,
+            "años": años_filters
         }
         
     except Exception as e:
@@ -489,7 +490,7 @@ def get_student_grades_statistics(
             if curso_data["promedios"]:
                 curso_promedio = sum(curso_data["promedios"]) / len(curso_data["promedios"])
                 promedios_por_curso.append(curso_promedio)
-                if curso_promedio >= 10.5:
+                if curso_promedio >= 13.0:
                     cursos_aprobados += 1
                 else:
                     cursos_desaprobados += 1
@@ -539,39 +540,19 @@ def get_student_grade_by_course(
     # Convertir a formato de respuesta - USANDO CAMPOS CORRECTOS
     notas_response = []
     for nota in notas:
-        # Calcular promedio si no existe
-        promedio_final = nota.promedio_final
-        if promedio_final is None:
-            all_grades = []
-            for i in range(1, 9):
-                eval_grade = getattr(nota, f'evaluacion{i}')
-                if eval_grade is not None:
-                    all_grades.append(float(eval_grade))
-            
-            for i in range(1, 5):
-                prac_grade = getattr(nota, f'practica{i}')
-                if prac_grade is not None:
-                    all_grades.append(float(prac_grade))
-            
-            for i in range(1, 3):
-                par_grade = getattr(nota, f'parcial{i}')
-                if par_grade is not None:
-                    all_grades.append(float(par_grade))
-            
-            if all_grades:
-                promedio_final = sum(all_grades) / len(all_grades)
+        # Calcular promedio usando el método del modelo
+        promedio_final = nota.calcular_promedio_final()
         
-        estado = nota.estado
-        if estado is None and promedio_final is not None:
-            estado = "APROBADO" if promedio_final >= 10.5 else "DESAPROBADO"
+        # Determinar estado usando el método del modelo
+        estado = nota.obtener_estado()
         
         nota_data = NotaEstudianteResponse(
-            id=nota.id,
-            curso_id=nota.curso_id,
-            curso_nombre=nota.curso.nombre,
-            docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-            ciclo_nombre=nota.curso.ciclo.nombre if nota.curso.ciclo else "Sin ciclo",
-            tipo_evaluacion=nota.tipo_evaluacion,
+                id=nota.id,
+                curso_id=nota.curso_id,
+                curso_nombre=nota.curso.nombre,
+                docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
+                ciclo_nombre=nota.curso.ciclo.nombre if nota.curso.ciclo else "Sin ciclo",
+                tipo_evaluacion="CURSO",  # Valor por defecto ya que no existe en el modelo
             
             # Campos del sistema nuevo
             evaluacion1=nota.evaluacion1,
@@ -669,7 +650,7 @@ def get_student_statistics(
     # Calcular créditos completados (cursos aprobados)
     creditos_completados = sum(
         curso.creditos for curso in cursos_actuales 
-        if any(promedio >= 10.5 for promedio in promedios_por_curso)
+        if any(promedio >= 13.0 for promedio in promedios_por_curso)
     )
     
     return {
@@ -801,38 +782,18 @@ def get_student_grades_by_type(
     evaluaciones_parciales = []
     
     for nota in notas:
-        # Calcular promedio si no existe
-        promedio_final = nota.promedio_final
-        if promedio_final is None:
-            all_grades = []
-            for i in range(1, 9):
-                eval_grade = getattr(nota, f'evaluacion{i}')
-                if eval_grade is not None:
-                    all_grades.append(float(eval_grade))
-            
-            for i in range(1, 5):
-                prac_grade = getattr(nota, f'practica{i}')
-                if prac_grade is not None:
-                    all_grades.append(float(prac_grade))
-            
-            for i in range(1, 3):
-                par_grade = getattr(nota, f'parcial{i}')
-                if par_grade is not None:
-                    all_grades.append(float(par_grade))
-            
-            if all_grades:
-                promedio_final = sum(all_grades) / len(all_grades)
+        # Calcular promedio usando el método del modelo
+        promedio_final = nota.calcular_promedio_final()
         
-        estado = nota.estado
-        if estado is None and promedio_final is not None:
-            estado = "APROBADO" if promedio_final >= 10.5 else "DESAPROBADO"
+        # Determinar estado usando el método del modelo
+        estado = nota.obtener_estado()
         
         nota_data = NotaEstudianteResponse(
             id=nota.id,
             curso_id=nota.curso_id,
             curso_nombre=nota.curso.nombre,
             docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-            tipo_evaluacion=nota.tipo_evaluacion,
+            tipo_evaluacion="CURSO",  # Valor por defecto ya que no existe en el modelo
             
             # Campos del sistema nuevo
             evaluacion1=nota.evaluacion1,
@@ -861,12 +822,8 @@ def get_student_grades_by_type(
             created_at=nota.created_at
         )
         
-        if nota.tipo_evaluacion == "SEMANAL":
-            evaluaciones_semanales.append(nota_data)
-        elif nota.tipo_evaluacion == "PRACTICA":
-            evaluaciones_practicas.append(nota_data)
-        elif nota.tipo_evaluacion == "PARCIAL":
-            evaluaciones_parciales.append(nota_data)
+        # Como tipo_evaluacion no existe en el modelo, usar un valor por defecto
+        evaluaciones_semanales.append(nota_data)
     
     # Calcular promedio final
     from app.shared.grade_calculator import GradeCalculator
@@ -912,7 +869,7 @@ def get_student_courses_with_grades(
                     curso_id=nota.curso_id,
                     curso_nombre=nota.curso.nombre,
                     docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-                    tipo_evaluacion=nota.tipo_evaluacion,
+                    tipo_evaluacion="CURSO",  # Valor por defecto ya que no existe en el modelo
                     
                     # Campos del sistema nuevo
                     evaluacion1=nota.evaluacion1,
@@ -932,8 +889,8 @@ def get_student_courses_with_grades(
                     parcial1=nota.parcial1,
                     parcial2=nota.parcial2,
                     
-                    promedio_final=nota.promedio_final,
-                    estado=nota.estado,
+                    promedio_final=nota.calcular_promedio_final(),
+                    estado=nota.obtener_estado(),
                     
                     peso=nota.peso,
                     fecha_evaluacion=nota.fecha_evaluacion.strftime("%Y-%m-%d"),
