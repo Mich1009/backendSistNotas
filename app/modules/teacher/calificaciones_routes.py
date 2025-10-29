@@ -243,13 +243,16 @@ def update_grades_bulk(
                 nota_existente.fecha_registro = nota_data.fecha_registro if hasattr(nota_data, 'fecha_registro') else datetime.now().date()
                 nota_existente.updated_at = datetime.utcnow()
                 
+                # Calcular promedio actual para el historial
+                promedio_actual = GradeCalculator.calcular_promedio_nota(nota_existente)
+                
                 # Crear registro en historial
                 historial = HistorialNota(
                     nota_id=nota_existente.id,
                     estudiante_id=nota_existente.estudiante_id,
                     curso_id=nota_existente.curso_id,
-                    nota_anterior=str(valores_anteriores),
-                    nota_nueva=f"Actualización masiva - Estudiante {nota_data.estudiante_id}",
+                    nota_anterior=None,  # Para actualizaciones masivas, no guardamos el valor anterior completo
+                    nota_nueva=float(promedio_actual) if promedio_actual is not None else 0.0,
                     motivo_cambio="ACTUALIZACION_MASIVA",
                     usuario_modificacion=f"{current_user.first_name} {current_user.last_name}"
                 )
@@ -283,13 +286,16 @@ def update_grades_bulk(
                 db.add(nueva_nota)
                 db.flush()  # Para obtener el ID
                 
+                # Calcular promedio de la nueva nota para el historial
+                promedio_nueva = GradeCalculator.calcular_promedio_nota(nueva_nota)
+                
                 # Crear registro en historial
                 historial = HistorialNota(
                     nota_id=nueva_nota.id,
                     estudiante_id=nueva_nota.estudiante_id,
                     curso_id=nueva_nota.curso_id,
                     nota_anterior=None,
-                    nota_nueva=f"Nueva nota - Estudiante {nota_data.estudiante_id}",
+                    nota_nueva=float(promedio_nueva) if promedio_nueva is not None else 0.0,
                     motivo_cambio="CREACION_MASIVA",
                     usuario_modificacion=f"{current_user.first_name} {current_user.last_name}"
                 )

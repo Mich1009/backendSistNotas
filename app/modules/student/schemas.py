@@ -117,6 +117,13 @@ class CursoEstudianteResponse(BaseModel):
     nombre: str
     docente_nombre: str
     ciclo_nombre: str
+    ciclo_año: Optional[int] = None
+    ciclo_numero: Optional[int] = None
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    horario: Optional[str] = None
+    aula: Optional[str] = None
+    carrera_nombre: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -273,6 +280,22 @@ class EstadisticasEstudiante(BaseModel):
 # Forward references
 CursoConNotasResponse.update_forward_refs()
 
+# Schema para respuesta del perfil del estudiante
+class EstudianteResponse(BaseModel):
+    id: int
+    user_id: int
+    codigo_estudiante: Optional[str] = None
+    telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    fecha_nacimiento: Optional[date] = None
+    genero: Optional[str] = None
+    estado_civil: Optional[str] = None
+    nombre_completo: str
+    email: str
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
 # Schemas para solicitudes de matrícula
 class SolicitudMatricula(BaseModel):
     cursos_ids: List[int] = Field(..., description="Lista de IDs de cursos para matricularse")
@@ -285,3 +308,35 @@ class SolicitudMatricula(BaseModel):
         if len(v) > 8:  # Límite máximo de cursos por ciclo
             raise ValueError('No puede matricularse en más de 8 cursos por ciclo')
         return v
+
+# Schemas para rendimiento académico
+class RendimientoAcademicoCiclo(BaseModel):
+    ciclo_id: int
+    ciclo_nombre: str
+    ciclo_numero: int
+    promedio_ciclo: float
+    numero_cursos: int
+    fecha_matricula: Optional[str] = None
+
+class CursoRendimiento(BaseModel):
+    curso_id: int
+    curso_nombre: str
+    promedio_final: Optional[float] = None
+    estado: Optional[str] = None
+    evaluaciones: Optional[Dict[str, Optional[float]]] = None
+    practicas: Optional[Dict[str, Optional[float]]] = None
+    parciales: Optional[Dict[str, Optional[float]]] = None
+
+class CicloInfo(BaseModel):
+    id: int
+    nombre: str
+    numero: int
+
+class RendimientoCicloDetallado(BaseModel):
+    ciclo_id: int
+    ciclo_nombre: str
+    ciclo_numero: int
+    numero_cursos: int
+    promedio_ciclo: Optional[float] = None
+    ciclo_info: CicloInfo
+    cursos: List[CursoRendimiento]

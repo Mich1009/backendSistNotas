@@ -1,22 +1,172 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
-from datetime import datetime
-from decimal import Decimal
+from typing import List
 
 from ...database import get_db
-from ..auth.dependencies import get_estudiante_user, get_current_active_user
-from ..auth.models import User, RoleEnum
-from .models import Carrera, Ciclo, Curso, Matricula, Nota
+from ..auth.dependencies import get_estudiante_user
+from ..auth.models import User
+from .models import Ciclo, Curso, Nota
+from .schemas import EstudianteDashboard, RendimientoAcademicoCiclo, RendimientoCicloDetallado
+from ...shared.models import Matricula
 from ...shared.grade_calculator import GradeCalculator
-from .schemas import (
-    CarreraResponse, CicloResponse, CursoEstudianteResponse, 
-    MatriculaResponse,
-    EstudianteDashboard, EstadisticasEstudiante,
-    PromedioFinalEstudianteResponse, NotasPorTipoResponse,CursoConNotasResponse,NotaEstudianteResponse  
-)
 
-router = APIRouter(prefix="/student", tags=["Estudiante"])
+# Importar los routers de los módulos separados
+from .grades_routes import router as grades_router
+from .courses_routes import router as courses_router
+from .schedule_routes import router as schedule_router
+from .profile_routes import router as profile_router
+
+router = APIRouter(prefix="/student", tags=["Estudiante - Dashboard"])
+
+# Endpoint de rendimiento académico con autenticación y cursos detallados
+@router.get("/academic-performance", response_model=List[RendimientoCicloDetallado])
+def get_academic_performance(
+    current_user: User = Depends(get_estudiante_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener el rendimiento académico con cursos detallados del estudiante autenticado"""
+    
+    try:
+        # Usar el ID del usuario autenticado
+        estudiante_id = current_user.id
+        
+        # Obtener todas las matrículas del estudiante con información del ciclo
+        matriculas = db.query(Matricula).options(
+            joinedload(Matricula.ciclo)
+        ).filter(
+            Matricula.estudiante_id == estudiante_id,
+            Matricula.is_active == True
+        ).all()
+        
+        if not matriculas:
+            return []
+        
+        performance_data = []
+        calculator = GradeCalculator()
+        
+        for matricula in matriculas:
+            # Obtener todos los cursos del ciclo
+            cursos_ciclo = db.query(Curso).filter(
+                Curso.ciclo_id == matricula.ciclo_id,
+                Curso.is_active == True
+            ).all()
+            
+            # Obtener las notas del estudiante para los cursos de este ciclo
+            notas_ciclo = db.query(Nota).options(
+                joinedload(Nota.curso)
+            ).filter(
+                Nota.estudiante_id == estudiante_id,
+                Nota.curso_id.in_([curso.id for curso in cursos_ciclo]) if cursos_ciclo else []
+            ).all()
+            
+            # Crear diccionario de notas por curso
+            notas_por_curso = {nota.curso_id: nota for nota in notas_ciclo}
+            
+            # Procesar cada curso del ciclo
+            cursos_rendimiento = []
+            
+            for curso in cursos_ciclo:
+                nota = notas_por_curso.get(curso.id)
+                
+                if nota:
+                    # Calcular promedio final
+                    try:
+                        promedio_final = calculator.calcular_promedio_nota(nota)
+                    except Exception as e:
+                        promedio_final = None
+                    
+                    # Preparar evaluaciones
+                    evaluaciones = {}
+                    for i in range(1, 9):
+                        eval_val = getattr(nota, f'evaluacion{i}')
+                        evaluaciones[f'evaluacion{i}'] = float(eval_val) if eval_val is not None else None
+                    
+                    # Preparar prácticas
+                    practicas = {}
+                    for i in range(1, 5):
+                        prac_val = getattr(nota, f'practica{i}')
+                        practicas[f'practica{i}'] = float(prac_val) if prac_val is not None else None
+                    
+                    # Preparar parciales
+                    parciales = {}
+                    for i in range(1, 3):
+                        parc_val = getattr(nota, f'parcial{i}')
+                        parciales[f'parcial{i}'] = float(parc_val) if parc_val is not None else None
+                    
+                    # Determinar estado basado en las notas completadas
+                    if promedio_final and float(promedio_final) >= 13.0:
+                        estado = "Aprobado"
+                    elif promedio_final and float(promedio_final) < 13.0:
+                        estado = "Desaprobado"
+                    else:
+                        # Verificar si tiene algunas notas (en curso) o ninguna (pendiente)
+                        tiene_notas = any([
+                            any(evaluaciones.values()),
+                            any(practicas.values()),
+                            any(parciales.values())
+                        ])
+                        estado = "En curso" if tiene_notas else "Pendiente"
+                
+                else:
+                    # Curso sin notas
+                    promedio_final = None
+                    evaluaciones = {f'evaluacion{i}': None for i in range(1, 9)}
+                    practicas = {f'practica{i}': None for i in range(1, 5)}
+                    parciales = {f'parcial{i}': None for i in range(1, 3)}
+                    estado = "Pendiente"
+                
+                curso_rendimiento = {
+                    "curso_id": curso.id,
+                    "curso_nombre": curso.nombre,
+                    "promedio_final": float(promedio_final) if promedio_final else None,
+                    "estado": estado,
+                    "evaluaciones": evaluaciones,
+                    "practicas": practicas,
+                    "parciales": parciales
+                }
+                
+                cursos_rendimiento.append(curso_rendimiento)
+            
+            # Calcular estadísticas del ciclo
+            numero_cursos = len(cursos_rendimiento)
+            
+            # Calcular promedio del ciclo (solo cursos con promedio final)
+            promedios_validos = [curso["promedio_final"] for curso in cursos_rendimiento if curso["promedio_final"] is not None]
+            promedio_ciclo = sum(promedios_validos) / len(promedios_validos) if promedios_validos else None
+            
+            # Crear el objeto de datos de rendimiento del ciclo
+            ciclo_data = {
+                "ciclo_id": matricula.ciclo.id,
+                "ciclo_nombre": matricula.ciclo.nombre,
+                "ciclo_numero": matricula.ciclo.numero,
+                "numero_cursos": numero_cursos,
+                "promedio_ciclo": round(promedio_ciclo, 2) if promedio_ciclo else None,
+                "ciclo_info": {
+                    "id": matricula.ciclo.id,
+                    "nombre": matricula.ciclo.nombre,
+                    "numero": matricula.ciclo.numero
+                },
+                "cursos": cursos_rendimiento
+            }
+            
+            performance_data.append(ciclo_data)
+        
+        # Ordenar por número de ciclo
+        performance_data.sort(key=lambda x: x["ciclo_info"]["numero"])
+        
+        return performance_data
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener el rendimiento académico: {str(e)}"
+        )
+
+# Incluir los routers de los módulos separados
+router.include_router(grades_router)
+router.include_router(courses_router)
+router.include_router(schedule_router)
+router.include_router(profile_router)
 
 @router.get("/dashboard", response_model=EstudianteDashboard)
 def get_student_dashboard(
@@ -169,10 +319,6 @@ def get_student_dashboard(
         }
 
     except Exception as e:
-        print(f"Error in get_student_dashboard: {e}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        
         return {
             "estudiante_info": {
                 "first_name": current_user.first_name,
@@ -190,733 +336,3 @@ def get_student_dashboard(
                 "creditos_completados": 0
             }
         }
-    
-@router.get("/courses", response_model=List[CursoEstudianteResponse])
-def get_student_courses(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db),
-    ciclo_id: Optional[int] = Query(None, description="Filtrar por ciclo específico")
-):
-    """Obtener cursos del estudiante"""
-    
-    try:
-        # Obtener matrículas activas del estudiante
-        matriculas_activas = db.query(Matricula).filter(
-            Matricula.estudiante_id == current_user.id,
-            Matricula.is_active == True
-        )
-        
-        if ciclo_id:
-            matriculas_activas = matriculas_activas.filter(Matricula.ciclo_id == ciclo_id)
-        
-        matriculas_activas = matriculas_activas.all()
-        
-        # Obtener cursos de los ciclos en los que está matriculado
-        ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
-        cursos = db.query(Curso).filter(
-            Curso.ciclo_id.in_(ciclo_ids),
-            Curso.is_active == True
-        ).options(
-            joinedload(Curso.ciclo).joinedload(Ciclo.carrera),
-            joinedload(Curso.docente)
-        ).all()
-        
-        # Convertir a formato de respuesta
-        cursos_response = []
-        for curso in cursos:
-            curso_data = {
-                "id": curso.id,
-                "nombre": curso.nombre,
-                "horario": getattr(curso, 'horario', None),
-                "aula": getattr(curso, 'aula', None),
-                "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
-                "carrera_nombre": curso.ciclo.carrera.nombre if curso.ciclo and curso.ciclo.carrera else "Sin carrera",
-                "ciclo_nombre": curso.ciclo.nombre
-            }
-            cursos_response.append(curso_data)
-        
-        return cursos_response
-    except Exception as e:
-        print(f"Error in get_student_courses: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener los cursos del estudiante"
-        )
-
-@router.get("/grades", response_model=List[NotaEstudianteResponse])
-def get_student_grades(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db),
-    curso_id: Optional[int] = Query(None, description="Filtrar por curso específico"),
-    ciclo_id: Optional[int] = Query(None, description="Filtrar por ciclo específico"),
-    docente_id: Optional[int] = Query(None, description="Filtrar por docente específico")
-):
-    """Obtener notas del estudiante con filtros por curso, ciclo y docente"""
-    
-    try:
-        # Construir query base
-        query = db.query(Nota).filter(
-            Nota.estudiante_id == current_user.id
-        ).options(
-            joinedload(Nota.curso).joinedload(Curso.docente),
-            joinedload(Nota.curso).joinedload(Curso.ciclo)
-        )
-        
-        # Aplicar filtros
-        if curso_id:
-            query = query.filter(Nota.curso_id == curso_id)
-        
-        if ciclo_id:
-            query = query.join(Curso).filter(Curso.ciclo_id == ciclo_id)
-        
-        if docente_id:
-            query = query.join(Curso).filter(Curso.docente_id == docente_id)
-        
-        notas = query.order_by(Nota.created_at.desc()).all()
-        
-        # Convertir a formato de respuesta
-        notas_response = []
-        for nota in notas:
-            # Calcular promedio usando el método del modelo
-            promedio_final = nota.calcular_promedio_final()
-            
-            # Determinar estado usando el método del modelo
-            estado = nota.obtener_estado()
-            
-            # Calcular promedios por tipo usando GradeCalculator
-            promedio_evaluaciones = GradeCalculator.calcular_promedio_evaluaciones(nota)
-            promedio_practicas = GradeCalculator.calcular_promedio_practicas(nota)
-            promedio_parciales = GradeCalculator.calcular_promedio_parciales(nota)
-            promedio_final = nota.calcular_promedio_final()
-            estado = nota.obtener_estado()
-            
-            nota_data = NotaEstudianteResponse(
-                id=nota.id,
-                curso_id=nota.curso_id,
-                curso_nombre=nota.curso.nombre,
-                docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-                ciclo_nombre=nota.curso.ciclo.nombre if nota.curso.ciclo else "Sin ciclo",
-                ciclo_año=nota.curso.ciclo.año if nota.curso.ciclo else None,
-                
-                # Promedios por tipo de evaluación
-                promedio_evaluaciones=float(promedio_evaluaciones) if promedio_evaluaciones else None,
-                promedio_practicas=float(promedio_practicas) if promedio_practicas else None,
-                promedio_parciales=float(promedio_parciales) if promedio_parciales else None,
-                
-                # Promedio final ponderado
-                promedio_final=float(promedio_final) if promedio_final else None,
-                estado=estado,
-                
-                # Notas individuales
-                evaluacion1=float(nota.evaluacion1) if nota.evaluacion1 else None,
-                evaluacion2=float(nota.evaluacion2) if nota.evaluacion2 else None,
-                evaluacion3=float(nota.evaluacion3) if nota.evaluacion3 else None,
-                evaluacion4=float(nota.evaluacion4) if nota.evaluacion4 else None,
-                evaluacion5=float(nota.evaluacion5) if nota.evaluacion5 else None,
-                evaluacion6=float(nota.evaluacion6) if nota.evaluacion6 else None,
-                evaluacion7=float(nota.evaluacion7) if nota.evaluacion7 else None,
-                evaluacion8=float(nota.evaluacion8) if nota.evaluacion8 else None,
-                
-                practica1=float(nota.practica1) if nota.practica1 else None,
-                practica2=float(nota.practica2) if nota.practica2 else None,
-                practica3=float(nota.practica3) if nota.practica3 else None,
-                practica4=float(nota.practica4) if nota.practica4 else None,
-                
-                parcial1=float(nota.parcial1) if nota.parcial1 else None,
-                parcial2=float(nota.parcial2) if nota.parcial2 else None,
-                
-                fecha_registro=nota.fecha_registro,
-                observaciones=nota.observaciones
-            )
-            notas_response.append(nota_data)
-        
-        return notas_response
-        
-    except Exception as e:
-        print(f"Error in get_student_grades: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener las notas del estudiante"
-        )
-
-@router.get("/grades/filters")
-def get_student_grades_filters(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener opciones de filtro para las calificaciones del estudiante"""
-    
-    try:
-        # Obtener cursos únicos del estudiante
-        cursos = db.query(Curso).join(Nota).filter(
-            Nota.estudiante_id == current_user.id
-        ).options(
-            joinedload(Curso.docente),
-            joinedload(Curso.ciclo)
-        ).distinct().all()
-        
-        # Obtener ciclos únicos
-        ciclos = db.query(Ciclo).join(Curso).join(Nota).filter(
-            Nota.estudiante_id == current_user.id
-        ).distinct().all()
-        
-        # Obtener docentes únicos
-        docentes = db.query(User).join(Curso).join(Nota).filter(
-            Nota.estudiante_id == current_user.id,
-            User.role == "docente"
-        ).distinct().all()
-        
-        # Obtener años únicos de los ciclos
-        años_query = db.query(Ciclo.año).join(Curso).join(Nota).filter(
-            Nota.estudiante_id == current_user.id,
-            Ciclo.año.isnot(None)
-        ).distinct().order_by(Ciclo.año.desc()).all()
-        
-        cursos_filters = [
-            {
-                "id": curso.id,
-                "nombre": curso.nombre,
-                "ciclo_nombre": curso.ciclo.nombre if curso.ciclo else "Sin ciclo"
-            }
-            for curso in cursos
-        ]
-        
-        ciclos_filters = [
-            {
-                "id": ciclo.id,
-                "nombre": ciclo.nombre,
-                "año": ciclo.año
-            }
-            for ciclo in ciclos
-        ]
-        
-        docentes_filters = [
-            {
-                "id": docente.id,
-                "nombre": f"{docente.first_name} {docente.last_name}"
-            }
-            for docente in docentes
-        ]
-        
-        años_filters = [
-            {
-                "año": año[0]
-            }
-            for año in años_query if año[0]
-        ]
-        
-        return {
-            "cursos": cursos_filters,
-            "ciclos": ciclos_filters,
-            "docentes": docentes_filters,
-            "años": años_filters
-        }
-        
-    except Exception as e:
-        print(f"Error in get_student_grades_filters: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener los filtros de calificaciones"
-        )
-
-@router.get("/grades/statistics", response_model=EstadisticasEstudiante)
-def get_student_grades_statistics(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db),
-    curso_id: Optional[int] = Query(None, description="Filtrar por curso específico"),
-    ciclo_id: Optional[int] = Query(None, description="Filtrar por ciclo específico")
-):
-    """Obtener estadísticas de las calificaciones del estudiante"""
-    
-    try:
-        # Obtener notas con filtros
-        query = db.query(Nota).filter(
-            Nota.estudiante_id == current_user.id
-        ).options(
-            joinedload(Nota.curso)
-        )
-        
-        if curso_id:
-            query = query.filter(Nota.curso_id == curso_id)
-        
-        if ciclo_id:
-            query = query.join(Curso).filter(Curso.ciclo_id == ciclo_id)
-        
-        notas = query.all()
-        
-        # Calcular estadísticas
-        total_notas = len(notas)
-        
-        # Calcular promedios por curso
-        cursos_promedios = {}
-        for nota in notas:
-            if nota.curso_id not in cursos_promedios:
-                cursos_promedios[nota.curso_id] = {
-                    "nombre": nota.curso.nombre,
-                    "promedios": []
-                }
-            
-            # Calcular promedio de esta nota
-            all_grades = []
-            
-            # Evaluaciones
-            for i in range(1, 9):
-                eval_grade = getattr(nota, f'evaluacion{i}')
-                if eval_grade is not None:
-                    all_grades.append(float(eval_grade))
-            
-            # Prácticas
-            for i in range(1, 5):
-                prac_grade = getattr(nota, f'practica{i}')
-                if prac_grade is not None:
-                    all_grades.append(float(prac_grade))
-            
-            # Parciales
-            for i in range(1, 3):
-                par_grade = getattr(nota, f'parcial{i}')
-                if par_grade is not None:
-                    all_grades.append(float(par_grade))
-            
-            if all_grades:
-                nota_promedio = sum(all_grades) / len(all_grades)
-                cursos_promedios[nota.curso_id]["promedios"].append(nota_promedio)
-        
-        # Calcular estadísticas generales
-        promedios_por_curso = []
-        cursos_aprobados = 0
-        cursos_desaprobados = 0
-        
-        for curso_data in cursos_promedios.values():
-            if curso_data["promedios"]:
-                curso_promedio = sum(curso_data["promedios"]) / len(curso_data["promedios"])
-                promedios_por_curso.append(curso_promedio)
-                if curso_promedio >= 13.0:
-                    cursos_aprobados += 1
-                else:
-                    cursos_desaprobados += 1
-        
-        promedio_general = None
-        if promedios_por_curso:
-            promedio_general = sum(promedios_por_curso) / len(promedios_por_curso)
-        
-        total_cursos = len(cursos_promedios)
-        
-        return EstadisticasEstudiante(
-            total_cursos=total_cursos,
-            promedio_general=promedio_general,
-            cursos_aprobados=cursos_aprobados,
-            cursos_desaprobados=cursos_desaprobados,
-            creditos_completados=cursos_aprobados  # Asumiendo 1 crédito por curso aprobado
-        )
-        
-    except Exception as e:
-        print(f"Error in get_student_grades_statistics: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener las estadísticas de calificaciones"
-        )
-    
-@router.get("/grades/{curso_id}", response_model=List[NotaEstudianteResponse])
-def get_student_grade_by_course(
-    curso_id: int,
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener todas las notas de un curso específico"""
-    
-    notas = db.query(Nota).filter(
-        Nota.estudiante_id == current_user.id,
-        Nota.curso_id == curso_id
-    ).options(
-        joinedload(Nota.curso).joinedload(Curso.docente)
-    ).order_by(Nota.fecha_evaluacion.desc()).all()
-    
-    if not notas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontraron notas para este curso"
-        )
-    
-    # Convertir a formato de respuesta - USANDO CAMPOS CORRECTOS
-    notas_response = []
-    for nota in notas:
-        # Calcular promedio usando el método del modelo
-        promedio_final = nota.calcular_promedio_final()
-        
-        # Determinar estado usando el método del modelo
-        estado = nota.obtener_estado()
-        
-        nota_data = NotaEstudianteResponse(
-                id=nota.id,
-                curso_id=nota.curso_id,
-                curso_nombre=nota.curso.nombre,
-                docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-                ciclo_nombre=nota.curso.ciclo.nombre if nota.curso.ciclo else "Sin ciclo",
-                tipo_evaluacion="CURSO",  # Valor por defecto ya que no existe en el modelo
-            
-            # Campos del sistema nuevo
-            evaluacion1=nota.evaluacion1,
-            evaluacion2=nota.evaluacion2,
-            evaluacion3=nota.evaluacion3,
-            evaluacion4=nota.evaluacion4,
-            evaluacion5=nota.evaluacion5,
-            evaluacion6=nota.evaluacion6,
-            evaluacion7=nota.evaluacion7,
-            evaluacion8=nota.evaluacion8,
-            
-            practica1=nota.practica1,
-            practica2=nota.practica2,
-            practica3=nota.practica3,
-            practica4=nota.practica4,
-            
-            parcial1=nota.parcial1,
-            parcial2=nota.parcial2,
-            
-            promedio_final=promedio_final,
-            estado=estado,
-            
-            peso=nota.peso,
-            fecha_evaluacion=nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-            observaciones=nota.observaciones,
-            created_at=nota.created_at
-        )
-        notas_response.append(nota_data)
-    
-    return notas_response
-
-@router.get("/enrollments", response_model=List[MatriculaResponse])
-def get_student_enrollments(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener matrículas del estudiante"""
-    
-    matriculas = db.query(Matricula).filter(
-        Matricula.estudiante_id == current_user.id
-    ).options(
-        joinedload(Matricula.curso),
-        joinedload(Matricula.ciclo)
-    ).order_by(Matricula.fecha_matricula.desc()).all()
-    
-    return matriculas
-
-# Endpoint de cursos disponibles eliminado - los estudiantes solo tienen permisos de lectura
-
-# Endpoint de matrícula eliminado - los estudiantes solo tienen permisos de lectura
-# La matrícula debe ser gestionada por el administrador
-
-@router.get("/statistics", response_model=EstadisticasEstudiante)
-def get_student_statistics(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener estadísticas del estudiante"""
-    
-    # Obtener cursos actuales a través de matrículas
-    matriculas_activas = db.query(Matricula).filter(
-        Matricula.estudiante_id == current_user.id,
-        Matricula.is_active == True
-    ).all()
-    
-    ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
-    cursos_actuales = db.query(Curso).filter(
-        Curso.ciclo_id.in_(ciclo_ids),
-        Curso.is_active == True
-    ).all()
-    
-    # Calcular estadísticas usando GradeCalculator
-    from app.shared.grade_calculator import GradeCalculator
-    
-    promedios_por_curso = []
-    cursos_aprobados = 0
-    cursos_desaprobados = 0
-    
-    for curso in cursos_actuales:
-        resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso.id, db)
-        if resultado["promedio_final"] > 0:
-            promedios_por_curso.append(resultado["promedio_final"])
-            if resultado["estado"] == "APROBADO":
-                cursos_aprobados += 1
-            else:
-                cursos_desaprobados += 1
-    
-    # Calcular estadísticas
-    total_cursos = len(cursos_actuales)
-    
-    promedio_general = None
-    if promedios_por_curso:
-        promedio_general = sum(promedios_por_curso) / len(promedios_por_curso)
-    
-    # Calcular créditos completados (cursos aprobados)
-    creditos_completados = sum(
-        curso.creditos for curso in cursos_actuales 
-        if any(promedio >= 13.0 for promedio in promedios_por_curso)
-    )
-    
-    return {
-        "total_cursos": total_cursos,
-        "promedio_general": promedio_general,
-        "cursos_aprobados": cursos_aprobados,
-        "cursos_desaprobados": cursos_desaprobados,
-        "creditos_completados": creditos_completados
-    }
-
-# Nuevos endpoints para el sistema de calificaciones mejorado
-
-@router.get("/final-grades", response_model=List[PromedioFinalEstudianteResponse])
-def get_student_final_grades(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener promedios finales de todos los cursos del estudiante"""
-    
-    # Obtener cursos del estudiante
-    matriculas_activas = db.query(Matricula).filter(
-        Matricula.estudiante_id == current_user.id,
-        Matricula.is_active == True
-    ).all()
-    
-    ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
-    cursos = db.query(Curso).filter(
-        Curso.ciclo_id.in_(ciclo_ids),
-        Curso.is_active == True
-    ).all()
-    
-    # Calcular promedios finales usando GradeCalculator
-    from app.shared.grade_calculator import GradeCalculator
-    
-    resultados = []
-    for curso in cursos:
-        resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso.id, db)
-        resultados.append({
-            "curso_id": curso.id,
-            "curso_nombre": curso.nombre,
-            "promedio_final": resultado["promedio_final"],
-            "estado": resultado["estado"],
-            "detalle": resultado["detalle"]
-        })
-    
-    return resultados
-
-@router.get("/final-grades/{curso_id}", response_model=PromedioFinalEstudianteResponse)
-def get_student_final_grade_by_course(
-    curso_id: int,
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener promedio final de un curso específico"""
-    
-    # Verificar que el estudiante está matriculado en el curso
-    matricula = db.query(Matricula).filter(
-        Matricula.estudiante_id == current_user.id,
-        Matricula.curso_id == curso_id,
-        Matricula.is_active == True
-    ).first()
-    
-    if not matricula:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No estás matriculado en este curso"
-        )
-    
-    # Obtener información del curso
-    curso = db.query(Curso).filter(Curso.id == curso_id).first()
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado"
-        )
-    
-    # Calcular promedio final usando GradeCalculator
-    from app.shared.grade_calculator import GradeCalculator
-    resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso_id, db)
-    
-    return {
-        "curso_id": curso_id,
-        "curso_nombre": curso.nombre,
-        "promedio_final": resultado["promedio_final"],
-        "estado": resultado["estado"],
-        "detalle": resultado["detalle"]
-    }
-
-@router.get("/grades-by-type/{curso_id}", response_model=NotasPorTipoResponse)
-def get_student_grades_by_type(
-    curso_id: int,
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener notas agrupadas por tipo de evaluación para un curso"""
-    
-    # Verificar que el estudiante está matriculado en el curso
-    matricula = db.query(Matricula).filter(
-        Matricula.estudiante_id == current_user.id,
-        Matricula.ciclo_id == curso_id,  # CORREGIR: esto debería ser curso_id?
-        Matricula.estado == "activa"
-    ).first()
-    
-    if not matricula:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No estás matriculado en este curso"
-        )
-    
-    # Obtener información del curso
-    curso = db.query(Curso).filter(Curso.id == curso_id).first()
-    if not curso:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Curso no encontrado"
-        )
-    
-    # Obtener todas las notas del estudiante en este curso
-    notas = db.query(Nota).filter(
-        Nota.estudiante_id == current_user.id,
-        Nota.curso_id == curso_id
-    ).options(
-        joinedload(Nota.curso).joinedload(Curso.docente)
-    ).order_by(Nota.fecha_evaluacion).all()
-    
-    # Agrupar notas por tipo - USANDO CAMPOS CORRECTOS
-    evaluaciones_semanales = []
-    evaluaciones_practicas = []
-    evaluaciones_parciales = []
-    
-    for nota in notas:
-        # Calcular promedio usando el método del modelo
-        promedio_final = nota.calcular_promedio_final()
-        
-        # Determinar estado usando el método del modelo
-        estado = nota.obtener_estado()
-        
-        nota_data = NotaEstudianteResponse(
-            id=nota.id,
-            curso_id=nota.curso_id,
-            curso_nombre=nota.curso.nombre,
-            docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-            tipo_evaluacion="CURSO",  # Valor por defecto ya que no existe en el modelo
-            
-            # Campos del sistema nuevo
-            evaluacion1=nota.evaluacion1,
-            evaluacion2=nota.evaluacion2,
-            evaluacion3=nota.evaluacion3,
-            evaluacion4=nota.evaluacion4,
-            evaluacion5=nota.evaluacion5,
-            evaluacion6=nota.evaluacion6,
-            evaluacion7=nota.evaluacion7,
-            evaluacion8=nota.evaluacion8,
-            
-            practica1=nota.practica1,
-            practica2=nota.practica2,
-            practica3=nota.practica3,
-            practica4=nota.practica4,
-            
-            parcial1=nota.parcial1,
-            parcial2=nota.parcial2,
-            
-            promedio_final=promedio_final,
-            estado=estado,
-            
-            peso=nota.peso,
-            fecha_evaluacion=nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-            observaciones=nota.observaciones,
-            created_at=nota.created_at
-        )
-        
-        # Como tipo_evaluacion no existe en el modelo, usar un valor por defecto
-        evaluaciones_semanales.append(nota_data)
-    
-    # Calcular promedio final
-    from app.shared.grade_calculator import GradeCalculator
-    resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso_id, db)
-    
-    return NotasPorTipoResponse(
-        curso_id=curso_id,
-        curso_nombre=curso.nombre,
-        evaluaciones_semanales=evaluaciones_semanales,
-        evaluaciones_practicas=evaluaciones_practicas,
-        evaluaciones_parciales=evaluaciones_parciales,
-        promedio_final=resultado["promedio_final"],
-        estado=resultado["estado"]
-    )
-
-@router.get("/courses-with-grades", response_model=List[CursoConNotasResponse])
-def get_student_courses_with_grades(
-    current_user: User = Depends(get_estudiante_user),
-    db: Session = Depends(get_db)
-):
-    """Obtener cursos del estudiante con todas sus notas - SISTEMA NUEVO"""
-    
-    try:
-        # Obtener cursos del estudiante
-        cursos_response = get_student_courses(current_user, db)
-        
-        cursos_con_notas = []
-        
-        for curso_data in cursos_response:
-            # Obtener notas para este curso
-            notas = db.query(Nota).filter(
-                Nota.estudiante_id == current_user.id,
-                Nota.curso_id == curso_data.id
-            ).options(
-                joinedload(Nota.curso).joinedload(Curso.docente)
-            ).all()
-            
-            # Convertir notas a formato nuevo
-            notas_response = []
-            for nota in notas:
-                nota_data = NotaEstudianteResponse(
-                    id=nota.id,
-                    curso_id=nota.curso_id,
-                    curso_nombre=nota.curso.nombre,
-                    docente_nombre=f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
-                    tipo_evaluacion="CURSO",  # Valor por defecto ya que no existe en el modelo
-                    
-                    # Campos del sistema nuevo
-                    evaluacion1=nota.evaluacion1,
-                    evaluacion2=nota.evaluacion2,
-                    evaluacion3=nota.evaluacion3,
-                    evaluacion4=nota.evaluacion4,
-                    evaluacion5=nota.evaluacion5,
-                    evaluacion6=nota.evaluacion6,
-                    evaluacion7=nota.evaluacion7,
-                    evaluacion8=nota.evaluacion8,
-                    
-                    practica1=nota.practica1,
-                    practica2=nota.practica2,
-                    practica3=nota.practica3,
-                    practica4=nota.practica4,
-                    
-                    parcial1=nota.parcial1,
-                    parcial2=nota.parcial2,
-                    
-                    promedio_final=nota.calcular_promedio_final(),
-                    estado=nota.obtener_estado(),
-                    
-                    peso=nota.peso,
-                    fecha_evaluacion=nota.fecha_evaluacion.strftime("%Y-%m-%d"),
-                    observaciones=nota.observaciones,
-                    created_at=nota.created_at
-                )
-                notas_response.append(nota_data)
-            
-            # Calcular promedio final del curso
-            from app.shared.grade_calculator import GradeCalculator
-            resultado = GradeCalculator.calcular_promedio_final(current_user.id, curso_data.id, db)
-            
-            curso_con_notas = CursoConNotasResponse(
-                curso=curso_data,
-                notas=notas_response,
-                promedio_final=resultado["promedio_final"],
-                estado=resultado["estado"]
-            )
-            
-            cursos_con_notas.append(curso_con_notas)
-        
-        return cursos_con_notas
-        
-    except Exception as e:
-        print(f"Error in get_student_courses_with_grades: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener los cursos con notas del estudiante"
-        )
