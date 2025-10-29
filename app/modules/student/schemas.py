@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 
 # Schemas específicos para el Dashboard
@@ -117,6 +117,13 @@ class CursoEstudianteResponse(BaseModel):
     nombre: str
     docente_nombre: str
     ciclo_nombre: str
+    ciclo_año: Optional[int] = None
+    ciclo_numero: Optional[int] = None
+    fecha_inicio: Optional[str] = None
+    fecha_fin: Optional[str] = None
+    horario: Optional[str] = None
+    aula: Optional[str] = None
+    carrera_nombre: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -170,33 +177,38 @@ class NotaEstudianteResponse(BaseModel):
     curso_id: int
     curso_nombre: str
     docente_nombre: str
-    tipo_evaluacion: str
+    ciclo_nombre: Optional[str] = None
+    ciclo_año: Optional[int] = None
     
-    # Campos del sistema nuevo
-    evaluacion1: Optional[Decimal] = None
-    evaluacion2: Optional[Decimal] = None
-    evaluacion3: Optional[Decimal] = None
-    evaluacion4: Optional[Decimal] = None
-    evaluacion5: Optional[Decimal] = None
-    evaluacion6: Optional[Decimal] = None
-    evaluacion7: Optional[Decimal] = None
-    evaluacion8: Optional[Decimal] = None
+    # Promedios por tipo de evaluación
+    promedio_evaluaciones: Optional[float] = None
+    promedio_practicas: Optional[float] = None
+    promedio_parciales: Optional[float] = None
     
-    practica1: Optional[Decimal] = None
-    practica2: Optional[Decimal] = None
-    practica3: Optional[Decimal] = None
-    practica4: Optional[Decimal] = None
-    
-    parcial1: Optional[Decimal] = None
-    parcial2: Optional[Decimal] = None
-    
-    promedio_final: Optional[Decimal] = None
+    # Promedio final ponderado
+    promedio_final: Optional[float] = None
     estado: Optional[str] = None
     
-    peso: Decimal
-    fecha_evaluacion: str
+    # Notas individuales
+    evaluacion1: Optional[float] = None
+    evaluacion2: Optional[float] = None
+    evaluacion3: Optional[float] = None
+    evaluacion4: Optional[float] = None
+    evaluacion5: Optional[float] = None
+    evaluacion6: Optional[float] = None
+    evaluacion7: Optional[float] = None
+    evaluacion8: Optional[float] = None
+    
+    practica1: Optional[float] = None
+    practica2: Optional[float] = None
+    practica3: Optional[float] = None
+    practica4: Optional[float] = None
+    
+    parcial1: Optional[float] = None
+    parcial2: Optional[float] = None
+    
+    fecha_registro: Optional[date] = None
     observaciones: Optional[str] = None
-    created_at: datetime
     
     class Config:
         from_attributes = True
@@ -207,25 +219,23 @@ class NotaDetalladaResponse(BaseModel):
     curso_id: int
     curso_nombre: str
     docente_nombre: str
-    tipo_evaluacion: str
     
-    # Evaluaciones semanales
-    evaluaciones: Dict[str, Optional[Decimal]] = Field(default_factory=dict)
+    # Promedios por tipo de evaluación
+    promedio_evaluaciones: Optional[float] = None
+    promedio_practicas: Optional[float] = None
+    promedio_parciales: Optional[float] = None
     
-    # Prácticas
-    practicas: Dict[str, Optional[Decimal]] = Field(default_factory=dict)
-    
-    # Parciales
-    parciales: Dict[str, Optional[Decimal]] = Field(default_factory=dict)
-    
-    # Resultados
-    promedio_final: Optional[Decimal] = None
+    # Promedio final ponderado
+    promedio_final: Optional[float] = None
     estado: Optional[str] = None
     
-    peso: Decimal
-    fecha_evaluacion: str
+    # Notas individuales detalladas
+    evaluaciones: List[Dict[str, Any]] = []  # Lista de evaluaciones semanales
+    practicas: List[Dict[str, Any]] = []     # Lista de prácticas
+    parciales: List[Dict[str, Any]] = []     # Lista de parciales
+    
+    fecha_registro: Optional[datetime] = None
     observaciones: Optional[str] = None
-    created_at: datetime
     
     class Config:
         from_attributes = True
@@ -270,6 +280,22 @@ class EstadisticasEstudiante(BaseModel):
 # Forward references
 CursoConNotasResponse.update_forward_refs()
 
+# Schema para respuesta del perfil del estudiante
+class EstudianteResponse(BaseModel):
+    id: int
+    user_id: int
+    codigo_estudiante: Optional[str] = None
+    telefono: Optional[str] = None
+    direccion: Optional[str] = None
+    fecha_nacimiento: Optional[date] = None
+    genero: Optional[str] = None
+    estado_civil: Optional[str] = None
+    nombre_completo: str
+    email: str
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
 # Schemas para solicitudes de matrícula
 class SolicitudMatricula(BaseModel):
     cursos_ids: List[int] = Field(..., description="Lista de IDs de cursos para matricularse")
@@ -282,3 +308,35 @@ class SolicitudMatricula(BaseModel):
         if len(v) > 8:  # Límite máximo de cursos por ciclo
             raise ValueError('No puede matricularse en más de 8 cursos por ciclo')
         return v
+
+# Schemas para rendimiento académico
+class RendimientoAcademicoCiclo(BaseModel):
+    ciclo_id: int
+    ciclo_nombre: str
+    ciclo_numero: int
+    promedio_ciclo: float
+    numero_cursos: int
+    fecha_matricula: Optional[str] = None
+
+class CursoRendimiento(BaseModel):
+    curso_id: int
+    curso_nombre: str
+    promedio_final: Optional[float] = None
+    estado: Optional[str] = None
+    evaluaciones: Optional[Dict[str, Optional[float]]] = None
+    practicas: Optional[Dict[str, Optional[float]]] = None
+    parciales: Optional[Dict[str, Optional[float]]] = None
+
+class CicloInfo(BaseModel):
+    id: int
+    nombre: str
+    numero: int
+
+class RendimientoCicloDetallado(BaseModel):
+    ciclo_id: int
+    ciclo_nombre: str
+    ciclo_numero: int
+    numero_cursos: int
+    promedio_ciclo: Optional[float] = None
+    ciclo_info: CicloInfo
+    cursos: List[CursoRendimiento]
