@@ -10,528 +10,547 @@ import json
 from ...database import get_db
 from ..auth.dependencies import get_admin_user
 from ...shared.models import User, RoleEnum, Carrera, Ciclo, Curso, Matricula, Nota, HistorialNota
+from ...shared.grade_utils import calcular_promedio_nota, obtener_notas_con_promedio
+from ...shared.grade_calculator import GradeCalculator
 from .schemas import (
     ReporteUsuarios, ReporteAcademico, EstadisticasGenerales
 )
 
 router = APIRouter(prefix="/reportes", tags=["Admin - Reportes"])
 
-# ==================== ESTADÍSTICAS GENERALES ====================
+# ==================== VISTA DE REPORTES DINAMICOS ====================
 
-@router.get("/estadisticas-generales", response_model=EstadisticasGenerales)
-def get_estadisticas_generales(
-    db: Session = Depends(get_db)
+@router.get("/jerarquicos/carreras-ciclos")
+async def get_estructura_jerarquica(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+    año: Optional[int] = Query(None, description="Filtrar por año específico")
 ):
-    """Obtener estadísticas generales del sistema"""
-    
-    # Contar usuarios por rol
-    total_estudiantes = db.query(User).filter(
-        User.role == RoleEnum.ESTUDIANTE,
-        User.is_active == True
-    ).count()
-    
-    total_docentes = db.query(User).filter(
-        User.role == RoleEnum.DOCENTE,
-        User.is_active == True
-    ).count()
-    
-    total_admins = db.query(User).filter(
-        User.role == RoleEnum.ADMIN,
-        User.is_active == True
-    ).count()
-    
-    # Contar total de usuarios y usuarios activos/inactivos
-    total_usuarios = db.query(User).count()
-    usuarios_activos = db.query(User).filter(User.is_active == True).count()
-    usuarios_inactivos = db.query(User).filter(User.is_active == False).count()
-    
-    # Contar cursos y ciclos activos
-    total_cursos = db.query(Curso).filter(Curso.is_active == True).count()
-    total_ciclos = db.query(Ciclo).filter(Ciclo.is_active == True).count()
-    total_carreras = db.query(Carrera).filter(Carrera.is_active == True).count()
-    
-    # Contar matrículas activas
-    total_matriculas = db.query(Matricula).filter(
-        Matricula.estado == "activa"
-    ).count()
-    
-    return EstadisticasGenerales(
-        total_usuarios=total_usuarios,
-        total_estudiantes=total_estudiantes,
-        total_docentes=total_docentes,
-        total_admins=total_admins,
-        total_cursos=total_cursos,
-        total_ciclos=total_ciclos,
-        total_carreras=total_carreras,
-        total_matriculas=total_matriculas,
-        usuarios_activos=usuarios_activos,
-        usuarios_inactivos=usuarios_inactivos
-    )
-
-# ==================== REPORTES DE RENDIMIENTO ====================
-
-@router.get("/rendimiento-estudiantes")
-def get_rendimiento_estudiantes(
-    ciclo_id: Optional[int] = Query(None),
-    carrera_id: Optional[int] = Query(None),
-    curso_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
-):
-    """Obtener datos de rendimiento de estudiantes para gráficas"""
-    
-    # Query base para notas
-    query = db.query(
-        User.id.label('estudiante_id'),
-        User.first_name,
-        User.last_name,
-        Curso.nombre.label('curso_nombre'),
-        Ciclo.nombre.label('ciclo_nombre'),
-        Carrera.nombre.label('carrera_nombre'),
-        func.avg(Nota.nota_final).label('promedio')
-    ).join(
-        Nota, User.id == Nota.estudiante_id
-    ).join(
-        Curso, Nota.curso_id == Curso.id
-    ).join(
-        Ciclo, Curso.ciclo_id == Ciclo.id
-    ).join(
-        Carrera, Ciclo.carrera_id == Carrera.id
-    ).filter(
-        User.role == RoleEnum.ESTUDIANTE,
-        User.is_active == True,
-        Nota.nota_final.isnot(None)  # Solo incluir registros con nota final
-    )
-    
-    # Aplicar filtros
-    if ciclo_id:
-        query = query.filter(Ciclo.id == ciclo_id)
-    
-    if carrera_id:
-        query = query.filter(Carrera.id == carrera_id)
-    
-    if curso_id:
-        query = query.filter(Curso.id == curso_id)
-    
-    # Agrupar por estudiante
-    resultados = query.group_by(
-        User.id, User.first_name, User.last_name,
-        Curso.nombre, Ciclo.nombre, Carrera.nombre
-    ).all()
-    
-    # Procesar datos para gráficas
-    datos_grafica = []
-    rangos_notas = {"0-10": 0, "11-13": 0, "14-16": 0, "17-20": 0}
-    
-    for resultado in resultados:
-        promedio = round(resultado.promedio, 2)
+    """
+    Obtiene la estructura jerárquica completa: Carreras -> Ciclos -> Cursos
+    """
+    try:
+        # Query base para carreras activas
+        query = db.query(Carrera).filter(Carrera.is_active == True)
         
-        datos_grafica.append({
-            "estudiante_id": resultado.estudiante_id,
-            "nombre_completo": f"{resultado.first_name} {resultado.last_name}",
-            "curso": resultado.curso_nombre,
-            "ciclo": resultado.ciclo_nombre,
-            "carrera": resultado.carrera_nombre,
-            "promedio": promedio
-        })
+        carreras = query.options(
+            joinedload(Carrera.ciclos).joinedload(Ciclo.cursos),
+            joinedload(Carrera.estudiantes)
+        ).all()
         
-        # Clasificar en rangos
-        if promedio <= 10:
-            rangos_notas["0-10"] += 1
-        elif promedio <= 13:
-            rangos_notas["11-13"] += 1
-        elif promedio <= 16:
-            rangos_notas["14-16"] += 1
-        else:
-            rangos_notas["17-20"] += 1
-    
-    return {
-        "datos_estudiantes": datos_grafica,
-        "distribucion_notas": rangos_notas,
-        "total_estudiantes": len(datos_grafica),
-        "promedio_general": round(sum(d["promedio"] for d in datos_grafica) / len(datos_grafica), 2) if datos_grafica else 0
-    }
-
-@router.get("/rendimiento-por-curso")
-def get_rendimiento_por_curso(
-    ciclo_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
-):
-    """Obtener rendimiento promedio por curso"""
-    
-    query = db.query(
-        Curso.id,
-        Curso.nombre,
-        Ciclo.nombre.label('ciclo_nombre'),
-        func.avg(Nota.nota_final).label('promedio'),
-        func.count(func.distinct(Nota.estudiante_id)).label('total_estudiantes'),
-        func.count(Nota.id).label('total_notas')
-    ).join(
-        Nota, Curso.id == Nota.curso_id
-    ).join(
-        Ciclo, Curso.ciclo_id == Ciclo.id
-    ).filter(
-        Curso.is_active == True
-    )
-    
-    if ciclo_id:
-        query = query.filter(Ciclo.id == ciclo_id)
-    
-    resultados = query.group_by(
-        Curso.id, Curso.nombre, Ciclo.nombre
-    ).order_by(desc(func.avg(Nota.nota_final))).all()
-    
-    datos_cursos = []
-    for resultado in resultados:
-        datos_cursos.append({
-            "curso_id": resultado.id,
-            "nombre": resultado.nombre,
-            "ciclo": resultado.ciclo_nombre,
-            "promedio": round(resultado.promedio, 2),
-            "total_estudiantes": resultado.total_estudiantes,
-            "total_notas": resultado.total_notas
-        })
-    
-    return {
-        "cursos": datos_cursos,
-        "total_cursos": len(datos_cursos)
-    }
-
-# ==================== EXPORTACIÓN A EXCEL ====================
-
-@router.get("/exportar/estudiantes")
-def exportar_estudiantes_excel(
-    ciclo_id: Optional[int] = Query(None),
-    carrera_id: Optional[int] = Query(None),
-    incluir_notas: bool = Query(False),
-    db: Session = Depends(get_db)
-):
-    """Exportar datos de estudiantes a Excel"""
-    
-    # Query base para estudiantes
-    query = db.query(User).filter(
-        User.role == RoleEnum.ESTUDIANTE,
-        User.is_active == True
-    )
-    
-    estudiantes = query.all()
-
-    # Preparar datos para Excel
-    datos_estudiantes = []
-    for estudiante in estudiantes:
-        datos_estudiantes.append({
-            "ID": estudiante.id,
-            "DNI": estudiante.dni,
-            "Nombres": estudiante.first_name,
-            "Apellidos": estudiante.last_name,
-            "Email": estudiante.email,
-            "Teléfono": estudiante.phone,
-            "Fecha Nacimiento": estudiante.fecha_nacimiento,
-            "Dirección": estudiante.direccion,
-            "Apoderado": estudiante.nombre_apoderado,
-            "Teléfono Apoderado": estudiante.telefono_apoderado,
-            "Fecha Registro": estudiante.created_at.replace(tzinfo=None) if estudiante.created_at else None
-        })
-    
-    # Crear DataFrame
-    df_estudiantes = pd.DataFrame(datos_estudiantes)
-    
-    # Crear archivo Excel en memoria
-    output = io.BytesIO()
-    
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_estudiantes.to_excel(writer, sheet_name='Estudiantes', index=False)
-        
-        # Si se incluyen notas, agregar hoja de notas
-        if incluir_notas:
-            notas_query = db.query(
-                User.dni,
-                User.first_name,
-                User.last_name,
-                Curso.nombre.label('curso'),
-                Ciclo.nombre.label('ciclo'),
-                Nota.nota_final,
-                Nota.fecha_registro
-            ).join(
-                Nota, User.id == Nota.estudiante_id
-            ).join(
-                Curso, Nota.curso_id == Curso.id
-            ).join(
-                Ciclo, Curso.ciclo_id == Ciclo.id
-            ).filter(
-                User.role == RoleEnum.ESTUDIANTE
-            )
-            
-            if ciclo_id:
-                notas_query = notas_query.filter(Ciclo.id == ciclo_id)
-            
-            notas_data = []
-            for nota in notas_query.all():
-                notas_data.append({
-                    "DNI": nota.dni,
-                    "Nombres": nota.first_name,
-                    "Apellidos": nota.last_name,
-                    "Curso": nota.curso,
-                    "Ciclo": nota.ciclo,
-                    "Nota": nota.nota_final,
-                    "Fecha": nota.fecha_registro.replace(tzinfo=None) if nota.fecha_registro else None
+        estructura = []
+        for carrera in carreras:
+            ciclos_data = []
+            for ciclo in carrera.ciclos:
+                if año and ciclo.año != año:
+                    continue
+                    
+                # Contar estudiantes matriculados en este ciclo
+                estudiantes_count = db.query(Matricula).filter(
+                    Matricula.ciclo_id == ciclo.id,
+                    Matricula.estado == "activa"
+                ).count()
+                
+                # Calcular estadísticas del ciclo usando GradeCalculator
+                # Obtener todas las notas de todos los cursos del ciclo
+                notas_ciclo = db.query(Nota).join(Curso).filter(
+                    Curso.ciclo_id == ciclo.id,
+                    Curso.is_active == True
+                ).all()
+                
+                aprobados_ciclo = 0
+                desaprobados_ciclo = 0
+                suma_promedios_ciclo = 0
+                total_con_promedio_ciclo = 0
+                
+                for nota in notas_ciclo:
+                    promedio_estudiante = GradeCalculator.calcular_promedio_nota(nota)
+                    if promedio_estudiante is not None:
+                        suma_promedios_ciclo += float(promedio_estudiante)
+                        total_con_promedio_ciclo += 1
+                        if promedio_estudiante >= GradeCalculator.NOTA_MINIMA_APROBACION:
+                            aprobados_ciclo += 1
+                        else:
+                            desaprobados_ciclo += 1
+                
+                # Promedio del ciclo basado en cálculos correctos
+                promedio_ciclo = round(suma_promedios_ciclo / total_con_promedio_ciclo, 2) if total_con_promedio_ciclo > 0 else 0
+                
+                cursos_data = []
+                for curso in ciclo.cursos:
+                    if not curso.is_active:
+                        continue
+                        
+                    # Obtener todas las notas del curso
+                    notas_curso = db.query(Nota).filter(Nota.curso_id == curso.id).all()
+                    
+                    # Contar aprobados y desaprobados usando GradeCalculator
+                    aprobados = 0
+                    desaprobados = 0
+                    suma_promedios = 0
+                    total_con_promedio = 0
+                    
+                    for nota in notas_curso:
+                        promedio_estudiante = GradeCalculator.calcular_promedio_nota(nota)
+                        if promedio_estudiante is not None:
+                            suma_promedios += float(promedio_estudiante)
+                            total_con_promedio += 1
+                            if promedio_estudiante >= GradeCalculator.NOTA_MINIMA_APROBACION:
+                                aprobados += 1
+                            else:
+                                desaprobados += 1
+                    
+                    # Promedio del curso basado en cálculos correctos
+                    promedio_curso = round(suma_promedios / total_con_promedio, 2) if total_con_promedio > 0 else 0
+                    
+                    cursos_data.append({
+                        "id": curso.id,
+                        "nombre": curso.nombre,
+                        "descripcion": curso.descripcion,
+                        "docente": curso.docente.full_name if curso.docente else "Sin asignar",
+                        "estudiantes_count": len(notas_curso),
+                        "aprobados": aprobados,
+                        "desaprobados": desaprobados,
+                        "promedio": promedio_curso
+                    })
+                
+                ciclos_data.append({
+                    "id": ciclo.id,
+                    "nombre": ciclo.nombre,
+                    "numero": ciclo.numero,
+                    "año": ciclo.año,
+                    "fecha_inicio": ciclo.fecha_inicio.isoformat(),
+                    "fecha_fin": ciclo.fecha_fin.isoformat(),
+                    "estudiantes_count": estudiantes_count,
+                    "aprobados": aprobados_ciclo,
+                    "desaprobados": desaprobados_ciclo,
+                    "promedio": promedio_ciclo,
+                    "cursos": cursos_data
                 })
             
-            df_notas = pd.DataFrame(notas_data)
-            df_notas.to_excel(writer, sheet_name='Notas', index=False)
-    
-    output.seek(0)
-    
-    # Preparar respuesta
-    filename = f"estudiantes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    
-    return Response(
-        content=output.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+            if ciclos_data or not año:  # Incluir carrera si tiene ciclos o no hay filtro de año
+                estructura.append({
+                    "id": carrera.id,
+                    "nombre": carrera.nombre,
+                    "codigo": carrera.codigo,
+                    "descripcion": carrera.descripcion,
+                    "duracion_ciclos": carrera.duracion_ciclos,
+                    "estudiantes_count": len(carrera.estudiantes),
+                    "ciclos": ciclos_data
+                })
+        
+        return {
+            "success": True,
+            "data": estructura,
+            "total_carreras": len(estructura),
+            "año_filtro": año
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener estructura jerárquica: {str(e)}"
+        )
 
-# ==================== ESTADÍSTICAS ESPECÍFICAS ====================
+@router.get("/exportar/notas-todos-ciclos")
+async def exportar_notas_todos_ciclos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+    formato: str = Query("excel", description="Formato de exportación: excel o csv")
+):
+    """
+    Exporta todas las notas de todos los estudiantes de todos los ciclos
+    """
+    try:
+        # Query completa con todas las relaciones
+        query = db.query(Nota).options(
+            joinedload(Nota.estudiante),
+            joinedload(Nota.curso).joinedload(Curso.ciclo).joinedload(Ciclo.carrera)
+        ).join(Curso).join(Ciclo).filter(Ciclo.is_active == True)
+        
+        notas = query.all()
+        
+        # Preparar datos para exportación
+        datos_exportacion = []
+        for nota in notas:
+            estudiante = nota.estudiante
+            curso = nota.curso
+            ciclo = curso.ciclo
+            carrera = ciclo.carrera
+            
+            # Calcular promedio final
+            promedio_final = calcular_promedio_nota(nota)
+            estado = "APROBADO" if promedio_final >= 13 else "DESAPROBADO" if promedio_final > 0 else "PENDIENTE"
+            
+            datos_exportacion.append({
+                "DNI_Estudiante": estudiante.dni,
+                "Nombre_Completo": estudiante.full_name,
+                "Carrera": carrera.nombre,
+                "Ciclo": ciclo.nombre,
+                "Año_Ciclo": ciclo.año,
+                "Numero_Ciclo": ciclo.numero,
+                "Curso": curso.nombre,
+                "Docente": curso.docente.full_name if curso.docente else "Sin asignar",
+                "Evaluacion_1": float(nota.evaluacion1 or 0),
+                "Evaluacion_2": float(nota.evaluacion2 or 0),
+                "Evaluacion_3": float(nota.evaluacion3 or 0),
+                "Evaluacion_4": float(nota.evaluacion4 or 0),
+                "Practica_1": float(nota.practica1 or 0),
+                "Practica_2": float(nota.practica2 or 0),
+                "Practica_3": float(nota.practica3 or 0),
+                "Practica_4": float(nota.practica4 or 0),
+                "Parcial_1": float(nota.parcial1 or 0),
+                "Parcial_2": float(nota.parcial2 or 0),
+                "Promedio_Final": round(promedio_final, 2),
+                "Estado": estado,
+                "Fecha_Registro": nota.fecha_registro.isoformat()
+            })
+        
+        # Crear DataFrame
+        df = pd.DataFrame(datos_exportacion)
+        
+        if formato.lower() == "excel":
+            # Exportar a Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Notas_Todos_Ciclos', index=False)
+            
+            output.seek(0)
+            
+            return Response(
+                content=output.getvalue(),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={
+                    "Content-Disposition": f"attachment; filename=notas_todos_ciclos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                }
+            )
+        else:
+            # Exportar a CSV
+            output = io.StringIO()
+            df.to_csv(output, index=False, encoding='utf-8')
+            
+            return Response(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f"attachment; filename=notas_todos_ciclos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                }
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar notas: {str(e)}"
+        )
 
-@router.get("/estudiantes-por-ciclo")
-def get_estudiantes_por_ciclo(
-    año: Optional[int] = Query(None, description="Año para filtrar los ciclos"),
+@router.get("/exportar/notas-por-ciclo/{ciclo_id}")
+async def exportar_notas_por_ciclo(
+    ciclo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+    formato: str = Query("excel", description="Formato de exportación: excel o csv")
+):
+    """
+    Exporta todas las notas de estudiantes de un ciclo específico
+    """
+    try:
+        # Verificar que el ciclo existe
+        ciclo = db.query(Ciclo).filter(Ciclo.id == ciclo_id).first()
+        if not ciclo:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ciclo no encontrado"
+            )
+        
+        # Query para notas del ciclo específico
+        query = db.query(Nota).options(
+            joinedload(Nota.estudiante),
+            joinedload(Nota.curso).joinedload(Curso.docente)
+        ).join(Curso).filter(Curso.ciclo_id == ciclo_id)
+        
+        notas = query.all()
+        
+        # Preparar datos para exportación
+        datos_exportacion = []
+        for nota in notas:
+            estudiante = nota.estudiante
+            curso = nota.curso
+            
+            # Calcular promedio final
+            promedio_final = calcular_promedio_nota(nota)
+            estado = "APROBADO" if promedio_final >= 13 else "DESAPROBADO" if promedio_final > 0 else "PENDIENTE"
+            
+            datos_exportacion.append({
+                "DNI_Estudiante": estudiante.dni,
+                "Nombre_Completo": estudiante.full_name,
+                "Email": estudiante.email,
+                "Telefono": estudiante.phone or "N/A",
+                "Curso": curso.nombre,
+                "Docente": curso.docente.full_name if curso.docente else "Sin asignar",
+                "Evaluacion_1": float(nota.evaluacion1 or 0),
+                "Evaluacion_2": float(nota.evaluacion2 or 0),
+                "Evaluacion_3": float(nota.evaluacion3 or 0),
+                "Evaluacion_4": float(nota.evaluacion4 or 0),
+                "Evaluacion_5": float(nota.evaluacion5 or 0),
+                "Evaluacion_6": float(nota.evaluacion6 or 0),
+                "Evaluacion_7": float(nota.evaluacion7 or 0),
+                "Evaluacion_8": float(nota.evaluacion8 or 0),
+                "Practica_1": float(nota.practica1 or 0),
+                "Practica_2": float(nota.practica2 or 0),
+                "Practica_3": float(nota.practica3 or 0),
+                "Practica_4": float(nota.practica4 or 0),
+                "Parcial_1": float(nota.parcial1 or 0),
+                "Parcial_2": float(nota.parcial2 or 0),
+                "Promedio_Final": round(promedio_final, 2),
+                "Estado": estado,
+                "Observaciones": nota.observaciones or "",
+                "Fecha_Registro": nota.fecha_registro.isoformat()
+            })
+        
+        # Crear DataFrame
+        df = pd.DataFrame(datos_exportacion)
+        
+        if formato.lower() == "excel":
+            # Exportar a Excel con múltiples hojas
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Hoja principal con todas las notas
+                df.to_excel(writer, sheet_name=f'Notas_{ciclo.nombre}', index=False)
+                
+                # Hoja de resumen por curso
+                resumen_cursos = df.groupby('Curso').agg({
+                    'DNI_Estudiante': 'count',
+                    'Promedio_Final': ['mean', 'min', 'max'],
+                    'Estado': lambda x: (x == 'APROBADO').sum()
+                }).round(2)
+                
+                resumen_cursos.columns = ['Total_Estudiantes', 'Promedio_Curso', 'Nota_Minima', 'Nota_Maxima', 'Aprobados']
+                resumen_cursos['Porcentaje_Aprobacion'] = (resumen_cursos['Aprobados'] / resumen_cursos['Total_Estudiantes'] * 100).round(2)
+                
+                resumen_cursos.to_excel(writer, sheet_name='Resumen_por_Curso')
+            
+            output.seek(0)
+            
+            return Response(
+                content=output.getvalue(),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={
+                    "Content-Disposition": f"attachment; filename=notas_{ciclo.nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                }
+            )
+        else:
+            # Exportar a CSV
+            output = io.StringIO()
+            df.to_csv(output, index=False, encoding='utf-8')
+            
+            return Response(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f"attachment; filename=notas_{ciclo.nombre}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                }
+            )
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al exportar notas del ciclo: {str(e)}"
+        )
+
+@router.get("/promedios/por-ciclo")
+async def get_promedios_por_ciclo(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+    año: Optional[int] = Query(None, description="Filtrar por año específico"),
+    carrera_id: Optional[int] = Query(None, description="Filtrar por carrera específica")
+):
+    """
+    Obtiene promedios agregados por ciclo académico
+    """
+    try:
+        # Query base para ciclos
+        query = db.query(Ciclo).filter(Ciclo.is_active == True)
+        
+        if año:
+            query = query.filter(Ciclo.año == año)
+        if carrera_id:
+            query = query.filter(Ciclo.carrera_id == carrera_id)
+        
+        ciclos = query.options(joinedload(Ciclo.carrera)).all()
+        
+        promedios_data = []
+        for ciclo in ciclos:
+            # Calcular estadísticas del ciclo
+            notas_query = db.query(Nota).join(Curso).filter(Curso.ciclo_id == ciclo.id)
+            
+            # Contar estudiantes únicos
+            estudiantes_count = notas_query.join(User).filter(User.role == RoleEnum.ESTUDIANTE).distinct(User.id).count()
+            
+            # Calcular promedio general del ciclo
+            promedios_individuales = []
+            for nota in notas_query.all():
+                promedio_individual = calcular_promedio_nota(nota)
+                if promedio_individual > 0:
+                    promedios_individuales.append(promedio_individual)
+            
+            promedio_ciclo = sum(promedios_individuales) / len(promedios_individuales) if promedios_individuales else 0
+            aprobados = len([p for p in promedios_individuales if p >= 13])
+            porcentaje_aprobacion = (aprobados / len(promedios_individuales) * 100) if promedios_individuales else 0
+            
+            promedios_data.append({
+                "ciclo_id": ciclo.id,
+                "ciclo_nombre": ciclo.nombre,
+                "ciclo_numero": ciclo.numero,
+                "año": ciclo.año,
+                "carrera": ciclo.carrera.nombre,
+                "carrera_codigo": ciclo.carrera.codigo,
+                "estudiantes_count": estudiantes_count,
+                "promedio_general": round(promedio_ciclo, 2),
+                "aprobados": aprobados,
+                "desaprobados": len(promedios_individuales) - aprobados,
+                "porcentaje_aprobacion": round(porcentaje_aprobacion, 2),
+                "fecha_inicio": ciclo.fecha_inicio.isoformat(),
+                "fecha_fin": ciclo.fecha_fin.isoformat()
+            })
+        
+        return {
+            "success": True,
+            "data": promedios_data,
+            "total_ciclos": len(promedios_data),
+            "filtros": {
+                "año": año,
+                "carrera_id": carrera_id
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener promedios por ciclo: {str(e)}"
+        )
+
+@router.get("/filtros/años-disponibles")
+async def get_años_disponibles(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user)
 ):
     """
-    Obtener estadísticas de estudiantes por ciclo.
-    El ciclo actual de un estudiante es el número de ciclo más alto en el que está matriculado.
+    Obtiene los años disponibles en el sistema para filtros
     """
-    
-    # Si no se especifica año, usar el año actual
-    if año is None:
-        año = datetime.now().year
-    
-    # Obtener años únicos disponibles en los ciclos
-    años_disponibles = db.query(Ciclo.año).distinct().order_by(Ciclo.año.desc()).all()
-    años_disponibles = [año_tuple[0] for año_tuple in años_disponibles]
-    
-    # Subconsulta para obtener el ciclo más alto (actual) de cada estudiante
-    subquery = db.query(
-        Matricula.estudiante_id,
-        func.max(Ciclo.numero).label('ciclo_actual_numero')
-    ).join(
-        Ciclo, Matricula.ciclo_id == Ciclo.id
-    ).filter(
-        Matricula.is_active == True,
-        Ciclo.año == año,
-        Ciclo.is_active == True
-    ).group_by(Matricula.estudiante_id).subquery()
-    
-    # Consulta principal para obtener estadísticas por ciclo
-    estadisticas = db.query(
-        Ciclo.numero,
-        Ciclo.nombre,
-        func.count(subquery.c.estudiante_id).label('numero_estudiantes')
-    ).join(
-        subquery, 
-        and_(
-            Ciclo.numero == subquery.c.ciclo_actual_numero,
-            Ciclo.año == año
+    try:
+        años = db.query(Ciclo.año).distinct().filter(Ciclo.is_active == True).order_by(Ciclo.año.desc()).all()
+        años_list = [año[0] for año in años]
+        
+        return {
+            "success": True,
+            "data": años_list,
+            "total": len(años_list)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener años disponibles: {str(e)}"
         )
-    ).filter(
-        Ciclo.is_active == True
-    ).group_by(
-        Ciclo.numero, Ciclo.nombre
-    ).order_by(Ciclo.numero).all()
-    
-    # Formatear resultados
-    resultado = []
-    for stat in estadisticas:
-        # Convertir número de ciclo a romano
-        ciclo_romano = convertir_a_romano(stat.numero)
-        resultado.append({
-            "ciclo": ciclo_romano,
-            "ciclo_numero": stat.numero,
-            "ciclo_nombre": stat.nombre,
-            "numero_estudiantes": stat.numero_estudiantes
-        })
-    
-    # Si no hay datos, crear estructura básica con ciclos vacíos
-    if not resultado:
-        # Obtener todos los ciclos del año para mostrar estructura completa
-        ciclos_año = db.query(Ciclo).filter(
-            Ciclo.año == año,
-            Ciclo.is_active == True
-        ).order_by(Ciclo.numero).all()
-        
-        for ciclo in ciclos_año:
-            ciclo_romano = convertir_a_romano(ciclo.numero)
-            resultado.append({
-                "ciclo": ciclo_romano,
-                "ciclo_numero": ciclo.numero,
-                "ciclo_nombre": ciclo.nombre,
-                "numero_estudiantes": 0
-            })
-    
-    return {
-        "año_seleccionado": año,
-        "años_disponibles": años_disponibles,
-        "estadisticas": resultado,
-        "total_estudiantes": sum(item["numero_estudiantes"] for item in resultado)
-    }
 
-def convertir_a_romano(numero):
-    """Convertir número a romano para mostrar ciclos"""
-    valores = [
-        (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
-    ]
-    
-    resultado = ''
-    for valor, numeral in valores:
-        count = numero // valor
-        if count:
-            resultado += numeral * count
-            numero -= valor * count
-    return resultado
-
-@router.get("/exportar/docentes")
-def exportar_docentes_excel(
-    db: Session = Depends(get_db)
+@router.get("/curso/{curso_id}/estudiantes")
+async def get_estudiantes_por_curso(
+    curso_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+    estado: Optional[str] = Query(None, description="Filtrar por estado: aprobado, desaprobado, todos")
 ):
-    """Exportar datos de docentes a Excel"""
-    
-    docentes = db.query(User).filter(
-        User.role == RoleEnum.DOCENTE,
-        User.is_active == True
-    ).all()
-    
-    datos_docentes = []
-    for docente in docentes:
-        # Obtener cursos asignados
-        cursos = db.query(Curso).filter(
-            Curso.docente_id == docente.id,
-            Curso.is_active == True
-        ).all()
+    """
+    Obtiene los estudiantes de un curso específico con su estado de aprobación
+    """
+    try:
+        # Verificar que el curso existe
+        curso = db.query(Curso).filter(Curso.id == curso_id, Curso.is_active == True).first()
+        if not curso:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Curso no encontrado"
+            )
         
-        cursos_nombres = ", ".join([curso.nombre for curso in cursos])
+        # Obtener todas las notas del curso con información del estudiante
+        notas = db.query(Nota).options(
+            joinedload(Nota.estudiante)
+        ).filter(Nota.curso_id == curso_id).all()
         
-        datos_docentes.append({
-            "ID": docente.id,
-            "DNI": docente.dni,
-            "Nombres": docente.first_name,
-            "Apellidos": docente.last_name,
-            "Email": docente.email,
-            "Teléfono": docente.phone,
-            "Especialidad": docente.especialidad,
-            "Grado Académico": docente.grado_academico,
-            "Fecha Ingreso": docente.fecha_ingreso,
-            "Cursos Asignados": cursos_nombres,
-            "Total Cursos": len(cursos),
-            "Fecha Registro": docente.created_at.replace(tzinfo=None) if docente.created_at else None
-        })
-    
-    df_docentes = pd.DataFrame(datos_docentes)
-    
-    # Crear archivo Excel
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_docentes.to_excel(writer, sheet_name='Docentes', index=False)
-    
-    output.seek(0)
-    
-    filename = f"docentes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    
-    return Response(
-        content=output.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
-
-@router.get("/exportar/notas")
-def exportar_notas_excel(
-    ciclo_id: Optional[int] = Query(None),
-    curso_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
-):
-    """Exportar notas a Excel"""
-    
-    query = db.query(
-        User.dni,
-        User.first_name,
-        User.last_name,
-        Curso.nombre.label('curso'),
-        Ciclo.nombre.label('ciclo'),
-        Carrera.nombre.label('carrera'),
-        Nota.nota_final,
-        Nota.fecha_registro,
-        User.first_name.label('docente_nombre'),
-        User.last_name.label('docente_apellido')
-    ).select_from(Nota).join(
-        User, Nota.estudiante_id == User.id
-    ).join(
-        Curso, Nota.curso_id == Curso.id
-    ).join(
-        Ciclo, Curso.ciclo_id == Ciclo.id
-    ).join(
-        Carrera, Ciclo.carrera_id == Carrera.id
-    ).outerjoin(
-        User.alias('docente'), Curso.docente_id == User.id
-    )
-    
-    if ciclo_id:
-        query = query.filter(Ciclo.id == ciclo_id)
-    
-    if curso_id:
-        query = query.filter(Curso.id == curso_id)
-    
-    notas = query.all()
-    
-    datos_notas = []
-    for nota in notas:
-        datos_notas.append({
-            "DNI Estudiante": nota.dni,
-            "Nombres": nota.first_name,
-            "Apellidos": nota.last_name,
-            "Carrera": nota.carrera,
-            "Ciclo": nota.ciclo,
-            "Curso": nota.curso,
-            "Nota": nota.nota_final,
-            "Fecha Registro": nota.fecha_registro.replace(tzinfo=None) if nota.fecha_registro else None
-        })
-    
-    df_notas = pd.DataFrame(datos_notas)
-    
-    # Crear archivo Excel
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_notas.to_excel(writer, sheet_name='Notas', index=False)
+        estudiantes_data = []
+        aprobados = []
+        desaprobados = []
         
-        # Agregar hoja de estadísticas
-        if not df_notas.empty:
-            estadisticas = {
-                "Métrica": [
-                    "Total de Notas",
-                    "Promedio General",
-                    "Nota Máxima",
-                    "Nota Mínima",
-                    "Estudiantes con Promedio >= 16",
-                    "Estudiantes con Promedio < 11"
-                ],
-                "Valor": [
-                    len(df_notas),
-                    round(df_notas['Nota'].mean(), 2),
-                    df_notas['Nota'].max(),
-                    df_notas['Nota'].min(),
-                    len(df_notas[df_notas['Nota'] >= 16]),
-                    len(df_notas[df_notas['Nota'] < 11])
-                ]
-            }
+        for nota in notas:
+            estudiante = nota.estudiante
+            promedio_final = GradeCalculator.calcular_promedio_nota(nota)
             
-            df_estadisticas = pd.DataFrame(estadisticas)
-            df_estadisticas.to_excel(writer, sheet_name='Estadísticas', index=False)
-    
-    output.seek(0)
-    
-    filename = f"notas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    
-    return Response(
-        content=output.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+            if promedio_final is not None:
+                es_aprobado = promedio_final >= GradeCalculator.NOTA_MINIMA_APROBACION
+                estado_estudiante = "aprobado" if es_aprobado else "desaprobado"
+                
+                estudiante_info = {
+                    "id": estudiante.id,
+                    "dni": estudiante.dni,
+                    "nombre_completo": estudiante.full_name,
+                    "email": estudiante.email,
+                    "promedio_final": float(promedio_final),
+                    "estado": estado_estudiante,
+                    "notas_detalle": {
+                        "evaluaciones": [
+                            float(nota.evaluacion1 or 0), float(nota.evaluacion2 or 0),
+                            float(nota.evaluacion3 or 0), float(nota.evaluacion4 or 0),
+                            float(nota.evaluacion5 or 0), float(nota.evaluacion6 or 0),
+                            float(nota.evaluacion7 or 0), float(nota.evaluacion8 or 0)
+                        ],
+                        "practicas": [
+                            float(nota.practica1 or 0), float(nota.practica2 or 0),
+                            float(nota.practica3 or 0), float(nota.practica4 or 0)
+                        ],
+                        "parciales": [
+                            float(nota.parcial1 or 0), float(nota.parcial2 or 0)
+                        ]
+                    }
+                }
+                
+                if es_aprobado:
+                    aprobados.append(estudiante_info)
+                else:
+                    desaprobados.append(estudiante_info)
+                
+                estudiantes_data.append(estudiante_info)
+        
+        # Filtrar según el parámetro estado
+        if estado == "aprobado":
+            estudiantes_filtrados = aprobados
+        elif estado == "desaprobado":
+            estudiantes_filtrados = desaprobados
+        else:
+            estudiantes_filtrados = estudiantes_data
+        
+        return {
+            "success": True,
+            "data": {
+                "curso": {
+                    "id": curso.id,
+                    "nombre": curso.nombre,
+                    "descripcion": curso.descripcion,
+                    "docente": curso.docente.full_name if curso.docente else "Sin asignar"
+                },
+                "estudiantes": estudiantes_filtrados,
+                "estadisticas": {
+                    "total": len(estudiantes_data),
+                    "aprobados": len(aprobados),
+                    "desaprobados": len(desaprobados),
+                    "porcentaje_aprobacion": round((len(aprobados) / len(estudiantes_data)) * 100, 2) if estudiantes_data else 0
+                }
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al obtener estudiantes del curso: {str(e)}"
+        )

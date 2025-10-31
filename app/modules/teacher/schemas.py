@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field, validator
-from typing import List, Optional
-from datetime import datetime
+from pydantic import BaseModel, Field, validator, ConfigDict
+from typing import List, Optional,Dict, Any
+from datetime import datetime, date
 from decimal import Decimal
 
 # Schemas para perfil de docente
@@ -44,8 +44,26 @@ class CursoDocenteResponse(BaseModel):
     is_active: bool
     created_at: datetime
     ciclo_nombre: Optional[str] = None
+    fecha_inicio: Optional[date] = None  # ← NUEVO
+    fecha_fin: Optional[date] = None    # ← NUEVO
     ciclo_año: Optional[int] = None
     total_estudiantes: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+# Schema para ciclos del docente
+class CicloResponse(BaseModel):
+    id: int
+    nombre: str
+    numero: int
+    año: int  # Campo para el año del ciclo
+    descripcion: Optional[str] = None
+    fecha_inicio: datetime
+    fecha_fin: datetime
+    carrera_id: int
+    is_active: bool
+    created_at: datetime
     
     class Config:
         from_attributes = True
@@ -58,22 +76,52 @@ class EstudianteEnCurso(BaseModel):
     last_name: str
     email: str
     fecha_matricula: datetime
+    phone: Optional[str] = None
     
     class Config:
         from_attributes = True
 
 class NotaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     estudiante_id: int
-    estudiante_nombre: str
-    tipo_evaluacion: str
-    nota: float
-    peso: float
-    fecha_evaluacion: str
-    observaciones: str | None
+    curso_id: int
+    
+    # Campos de evaluaciones individuales
+    evaluacion1: Optional[Decimal] = None
+    evaluacion2: Optional[Decimal] = None
+    evaluacion3: Optional[Decimal] = None
+    evaluacion4: Optional[Decimal] = None
+    evaluacion5: Optional[Decimal] = None
+    evaluacion6: Optional[Decimal] = None
+    evaluacion7: Optional[Decimal] = None
+    evaluacion8: Optional[Decimal] = None
+    
+    practica1: Optional[Decimal] = None
+    practica2: Optional[Decimal] = None
+    practica3: Optional[Decimal] = None
+    practica4: Optional[Decimal] = None
+    
+    parcial1: Optional[Decimal] = None
+    parcial2: Optional[Decimal] = None
+    
+    fecha_evaluacion: date
+    observaciones: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    # Información adicional del estudiante y curso
+    estudiante_nombre: Optional[str] = None
+    curso_nombre: Optional[str] = None
+    
+    # Campos calculados dinámicamente
+    promedio_evaluaciones: Optional[Decimal] = None
+    promedio_practicas: Optional[Decimal] = None
+    promedio_parciales: Optional[Decimal] = None
+    promedio_final: Optional[Decimal] = None
+    estado: Optional[str] = None
 
-    class Config:
-        from_attributes = True
 
 class EstudianteConNota(EstudianteEnCurso):
     """Estudiante con sus notas en el curso"""
@@ -83,33 +131,61 @@ class EstudianteConNota(EstudianteEnCurso):
         from_attributes = True
 
 # Schemas para gestión de notas
-class NotaCreate(BaseModel):
+class NotaBase(BaseModel):
     estudiante_id: int
     curso_id: int
-    tipo_evaluacion: str = Field(..., description="Tipo de evaluación: SEMANAL, PRACTICA, PARCIAL")
-    valor_nota: Decimal = Field(..., ge=0, le=20, description="Valor de la nota (0-20)")
-    fecha_evaluacion: str = Field(..., description="Fecha de evaluación (YYYY-MM-DD)")
-    observaciones: Optional[str] = None
     
-    @validator('tipo_evaluacion')
-    def validate_tipo_evaluacion(cls, v):
-        tipos_validos = ['SEMANAL', 'PRACTICA', 'PARCIAL']
-        if v not in tipos_validos:
-            raise ValueError(f'Tipo de evaluación debe ser uno de: {tipos_validos}')
-        return v
+    # Campos de evaluaciones individuales
+    evaluacion1: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion2: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion3: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion4: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion5: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion6: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion7: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion8: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    # Campos de prácticas
+    practica1: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica2: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica3: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica4: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    # Campos de parciales
+    parcial1: Optional[Decimal] = Field(None, ge=0, le=20)
+    parcial2: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    fecha_evaluacion: date
+    observaciones: Optional[str] = None
+
+class NotaCreate(NotaBase):
+    pass
 
 class NotaUpdate(BaseModel):
-    valor_nota: Optional[Decimal] = Field(None, ge=0, le=20, description="Valor de la nota (0-20)")
-    fecha_evaluacion: Optional[str] = Field(None, description="Fecha de evaluación (YYYY-MM-DD)")
+    # Campos actualizables individualmente
+    evaluacion1: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion2: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion3: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion4: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion5: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion6: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion7: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion8: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    practica1: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica2: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica3: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica4: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    parcial1: Optional[Decimal] = Field(None, ge=0, le=20)
+    parcial2: Optional[Decimal] = Field(None, ge=0, le=20)
+    
     observaciones: Optional[str] = None
-
+    
 class NotaDocenteResponse(BaseModel):
     id: int
     estudiante_id: int
     curso_id: int
-    tipo_evaluacion: str
-    valor_nota: Decimal
-    peso: Decimal
     fecha_evaluacion: str
     observaciones: Optional[str] = None
     created_at: datetime
@@ -122,61 +198,129 @@ class NotaDocenteResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Schemas para actualización masiva de notas
-class NotaMasiva(BaseModel):
+class NotaMasivaCreate(BaseModel):
     estudiante_id: int
-    tipo_evaluacion: str = Field(..., description="Tipo de evaluación: SEMANAL, PRACTICA, PARCIAL")
-    valor_nota: Decimal = Field(..., ge=0, le=20, description="Valor de la nota (0-20)")
-    fecha_evaluacion: str = Field(..., description="Fecha de evaluación (YYYY-MM-DD)")
+    curso_id: int
+    fecha_evaluacion: date
     observaciones: Optional[str] = None
     
-    @validator('tipo_evaluacion')
-    def validate_tipo_evaluacion(cls, v):
-        tipos_validos = ['SEMANAL', 'PRACTICA', 'PARCIAL']
-        if v not in tipos_validos:
-            raise ValueError(f'Tipo de evaluación debe ser uno de: {tipos_validos}')
-        return v
+    # Campos de evaluaciones
+    evaluacion1: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion2: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion3: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion4: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion5: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion6: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion7: Optional[Decimal] = Field(None, ge=0, le=20)
+    evaluacion8: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    practica1: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica2: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica3: Optional[Decimal] = Field(None, ge=0, le=20)
+    practica4: Optional[Decimal] = Field(None, ge=0, le=20)
+    
+    parcial1: Optional[Decimal] = Field(None, ge=0, le=20)
+    parcial2: Optional[Decimal] = Field(None, ge=0, le=20)
 
+# Schema para actualización masiva de notas
 class ActualizacionMasivaNotas(BaseModel):
-    curso_id: int
-    notas: List[NotaMasiva]
+    notas: List[NotaMasivaCreate]
     
     @validator('notas')
-    def validate_notas(cls, v):
+    def validar_notas(cls, v):
         if not v:
             raise ValueError('Debe proporcionar al menos una nota')
-        if len(v) > 50:  # Límite de seguridad
-            raise ValueError('No se pueden actualizar más de 50 notas a la vez')
+        if len(v) > 50:
+            raise ValueError('No se pueden procesar más de 50 notas a la vez')
         return v
+    
+# Schema para cálculo de promedios
+class CalculoPromedioRequest(BaseModel):
+    curso_id: int
+    estudiante_id: int
+    configuracion: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-# Schemas para cálculos de promedios
 class PromedioFinalResponse(BaseModel):
     estudiante_id: int
     curso_id: int
     promedio_final: Decimal
-    estado: str  # APROBADO, DESAPROBADO, SIN_NOTAS
-    detalle: dict
+    estado: str  # APROBADO, DESAPROBADO, EN_PROCESO
+    detalle_calculo: Dict[str, Any]
+    notas_completas: bool
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
+# Schemas para dashboard del docente
+# Schema para estructura de notas del estudiante
 class EstructuraNotasResponse(BaseModel):
     estudiante_id: int
     curso_id: int
-    notas_semanales: dict
-    notas_practicas: dict
-    notas_parciales: dict
-    estructura_completa: bool
+    evaluaciones: Dict[str, Optional[Decimal]]
+    practicas: Dict[str, Optional[Decimal]]
+    parciales: Dict[str, Optional[Decimal]]
+    promedio_parcial: Optional[Decimal]
+    promedio_final: Optional[Decimal]
+    estado: str
+    completitud: float  # Porcentaje de completitud (0-100)
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
-# Schemas para dashboard del docente
+# Schema para reporte de curso completo
+class ReporteCursoCompleto(BaseModel):
+    curso_info: Dict[str, Any]
+    estudiantes: List[Dict[str, Any]]
+    estadisticas: Dict[str, Any]
+    distribucion_notas: Dict[str, int]
+    promedios_por_tipo: Dict[str, Decimal]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# Schema para configuración de cálculo de notas
+class ConfiguracionCalculoNotas(BaseModel):
+    curso_id: int
+    peso_evaluaciones: Decimal = Field(0.4, ge=0, le=1)
+    peso_practicas: Decimal = Field(0.3, ge=0, le=1)
+    peso_parciales: Decimal = Field(0.3, ge=0, le=1)
+    nota_minima_aprobatoria: Decimal = Field(11, ge=0, le=20)
+    incluir_mejores_evaluaciones: Optional[int] = Field(None, ge=1, le=8)
+    formula_personalizada: Optional[str] = None
+
+# Schema para histórico de cambios
+class HistorialNotaResponse(BaseModel):
+    id: int
+    nota_id: int
+    estudiante_id: int
+    curso_id: int
+    nota_anterior: Optional[Decimal]
+    nota_nueva: Decimal
+    motivo_cambio: str
+    usuario_modificacion: str
+    fecha_modificacion: datetime
+    cambios_detallados: Dict[str, Any]
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# Schemas para dashboard del docente - MEJORADOS
+class EstadisticasCursoDetalladas(BaseModel):
+    total_estudiantes: int
+    estudiantes_con_notas: int
+    promedio_general: Optional[Decimal]
+    nota_maxima: Optional[Decimal]
+    nota_minima: Optional[Decimal]
+    estudiantes_aprobados: int
+    estudiantes_desaprobados: int
+    estudiantes_sin_notas: int
+    tasa_aprobacion: Decimal
+    distribucion_rangos: Dict[str, int]
+    completitud_notas: Decimal
+    
+    model_config = ConfigDict(from_attributes=True)
+
 class DocenteDashboard(BaseModel):
-    """Dashboard completo del docente"""
+    """Dashboard completo del docente con estadísticas avanzadas"""
     docente_info: dict
-    cursos_actuales: List[CursoDocenteResponse]
     estadisticas_generales: dict
+    cursos_actuales: List[dict]
     actividad_reciente: List[dict]
     
     class Config:
@@ -229,3 +373,76 @@ class ConfiguracionCurso(BaseModel):
     fecha_limite_notas: Optional[datetime] = None
     notificaciones_activas: bool = True
     plantilla_observaciones: Optional[str] = None
+
+# Utilidades para cálculos
+class NotasCalculo(BaseModel):
+    """Estructura para cálculos de promedios"""
+    evaluaciones: List[Decimal]
+    practicas: List[Decimal]
+    parciales: List[Decimal]
+    
+    def calcular_promedio_evaluaciones(self, incluir_mejores: Optional[int] = None) -> Optional[Decimal]:
+        if not self.evaluaciones:
+            return None
+        
+        evaluaciones_validas = [n for n in self.evaluaciones if n is not None]
+        if not evaluaciones_validas:
+            return None
+            
+        if incluir_mejores and len(evaluaciones_validas) > incluir_mejores:
+            evaluaciones_validas.sort(reverse=True)
+            evaluaciones_validas = evaluaciones_validas[:incluir_mejores]
+            
+        return sum(evaluaciones_validas) / len(evaluaciones_validas)
+
+# Response para búsqueda y filtros
+class NotasFilter(BaseModel):
+    curso_id: Optional[int] = None
+    estudiante_id: Optional[int] = None
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    estado: Optional[str] = None
+    solo_con_notas: bool = False
+
+class NotasPaginationResponse(BaseModel):
+    items: List[NotaResponse]
+    total: int
+    pagina: int
+    por_pagina: int
+    total_paginas: int
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# Schemas para reportes
+class EstudianteRendimientoResponse(BaseModel):
+    id: int
+    nombre: str
+    dni: str
+    email: str
+    promedio_final: float
+    estado: str
+
+class CursoReporteResponse(BaseModel):
+    id: int
+    nombre: str
+    codigo: str
+    ciclo: str
+    año: Optional[int]
+    total_estudiantes: int
+    estudiantes_aprobados: int
+    estudiantes_reprobados: int
+    promedio_curso: float
+    tasa_aprobacion: float
+    estudiantes: List[EstudianteRendimientoResponse]
+
+class ResumenReporteResponse(BaseModel):
+    total_cursos: int
+    total_estudiantes: int
+    promedio_general: float
+    tasa_aprobacion: float
+    estudiantes_aprobados: int
+    estudiantes_reprobados: int
+
+class ReporteRendimientoResponse(BaseModel):
+    resumen: ResumenReporteResponse
+    cursos: List[CursoReporteResponse]

@@ -44,7 +44,7 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     db.commit()
     
     # Crear token de acceso
-    access_token_expires = timedelta(minutes=30)
+    access_token_expires = timedelta(minutes=300)
     access_token = create_access_token(
         data={"sub": user.dni}, expires_delta=access_token_expires
     )

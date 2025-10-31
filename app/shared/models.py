@@ -1,7 +1,7 @@
 """
 Modelos compartidos del sistema
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, ForeignKey, Text, Numeric, Date
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, ForeignKey, Text, Numeric, Date, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -161,17 +161,29 @@ class Nota(Base):
     id = Column(Integer, primary_key=True, index=True)
     estudiante_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
-    tipo_evaluacion = Column(String(50), nullable=False)
-    # NUEVOS CAMPOS - TODOS OPCIONALES
-    nota1 = Column(Numeric(4, 2), nullable=True)
-    nota2 = Column(Numeric(4, 2), nullable=True)
-    nota3 = Column(Numeric(4, 2), nullable=True)
-    nota4 = Column(Numeric(4, 2), nullable=True)
-    nota_final = Column(Numeric(4, 2), nullable=True)
-    estado = Column(String(20), nullable=True)  # APROBADO, DESAPROBADO
     
-    peso = Column(Numeric(3, 2), nullable=False)
-    fecha_evaluacion = Column(Date, nullable=False)
+    # Evaluaciones (hasta 8)
+    evaluacion1 = Column(Numeric(4, 2), nullable=True)
+    evaluacion2 = Column(Numeric(4, 2), nullable=True)
+    evaluacion3 = Column(Numeric(4, 2), nullable=True)
+    evaluacion4 = Column(Numeric(4, 2), nullable=True)
+    evaluacion5 = Column(Numeric(4, 2), nullable=True)
+    evaluacion6 = Column(Numeric(4, 2), nullable=True)
+    evaluacion7 = Column(Numeric(4, 2), nullable=True)
+    evaluacion8 = Column(Numeric(4, 2), nullable=True)
+
+    # Prácticas (hasta 4)
+    practica1 = Column(Numeric(4, 2), nullable=True)
+    practica2 = Column(Numeric(4, 2), nullable=True)
+    practica3 = Column(Numeric(4, 2), nullable=True)
+    practica4 = Column(Numeric(4, 2), nullable=True)
+
+    # Parciales (hasta 2)
+    parcial1 = Column(Numeric(4, 2), nullable=True)
+    parcial2 = Column(Numeric(4, 2), nullable=True)
+
+    # Campos de control
+    fecha_registro = Column(Date, nullable=False, default=func.current_date())
     observaciones = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -181,8 +193,41 @@ class Nota(Base):
     curso = relationship("Curso", back_populates="notas")
     historial = relationship("HistorialNota", back_populates="nota")
     
+    # Constraint para evitar duplicados
+    __table_args__ = (
+        UniqueConstraint('estudiante_id', 'curso_id', name='uq_estudiante_curso'),
+    )
+    
+    def calcular_promedio_final(self):
+        """Calcula el promedio final usando GradeCalculator con pesos correctos: 10% evaluaciones, 30% prácticas, 60% parciales"""
+        from .grade_calculator import GradeCalculator
+        promedio = GradeCalculator.calcular_promedio_nota(self)
+        return float(promedio) if promedio is not None else 0.0
+    
+    def obtener_estado(self):
+        """Determina el estado basado en el promedio final"""
+        promedio = self.calcular_promedio_final()
+        return "APROBADO" if promedio >= 13 else "DESAPROBADO" if promedio > 0 else "PENDIENTE"
+    
     def __repr__(self):
-        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, nota_final={self.nota_final})>"
+        return f"<Nota(estudiante_id={self.estudiante_id}, curso_id={self.curso_id}, promedio_final={self.calcular_promedio_final()})>"
+
+class DescripcionEvaluacion(Base):
+    __tablename__ = "descripciones_evaluacion"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    curso_id = Column(Integer, ForeignKey("cursos.id"), nullable=False)
+    tipo_evaluacion = Column(String(50), nullable=False)  # evaluacion1, evaluacion2, practica1, etc.
+    descripcion = Column(Text, nullable=False)
+    fecha_evaluacion = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relaciones
+    curso = relationship("Curso")
+    
+    def __repr__(self):
+        return f"<DescripcionEvaluacion(curso_id={self.curso_id}, tipo_evaluacion={self.tipo_evaluacion})>"
 
 class HistorialNota(Base):
     __tablename__ = "historial_notas"
