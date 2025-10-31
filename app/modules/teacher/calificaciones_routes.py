@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 import pandas as pd
 import io
+import logging
 
 from ...database import get_db
 from ..auth.dependencies import get_docente_user
@@ -21,6 +22,7 @@ from .schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("/courses/{curso_id}/grades", response_model=List[NotaResponse])
 def get_course_grades(
@@ -490,7 +492,7 @@ def upload_grades_from_excel(
         
     except Exception as e:
         db.rollback()
-        print(f"❌ Error procesando Excel: {e}")
+        logger.error(f"Error procesando Excel: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error procesando archivo Excel: {str(e)}"

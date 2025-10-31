@@ -15,15 +15,9 @@ class EmailRecuperacionService:
         
         # Verificar si la configuración SMTP está completa
         if not self.smtp_username or not self.smtp_password:
-            print(f"❌ Configuración SMTP incompleta en .env")
-            print(f"   SMTP_USERNAME: {'✅ Configurado' if self.smtp_username else '❌ Faltante'}")
-            print(f"   SMTP_PASSWORD: {'✅ Configurado' if self.smtp_password else '❌ Faltante'}")
-            print(f"🔐 Token de recuperación para {to_email}: {reset_url}")
             return False
         
         try:
-            print(f"📧 Preparando email para: {to_email}")
-            
             # Crear mensaje
             message = MIMEMultipart("alternative")
             message["Subject"] = "🔐 Código de Recuperación - Sistema de Notas"
@@ -110,25 +104,17 @@ class EmailRecuperacionService:
             message.attach(MIMEText(text, "plain"))
             message.attach(MIMEText(html, "html"))
             
-            print(f"🔄 Conectando a {self.smtp_server}:{self.smtp_port}...")
-            
             # Enviar email
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()  # Seguridad TLS
-                print(f"🔐 Iniciando sesión con: {self.smtp_username}")
                 server.login(self.smtp_username, self.smtp_password)
                 server.send_message(message)
             
-            print(f"✅ Email enviado exitosamente a: {to_email}")
             return True
             
         except smtplib.SMTPAuthenticationError:
-            print(f"❌ Error de autenticación - Verifica tu App Password")
-            print(f"🔐 Token (fallback): {reset_url}")
             return False
         except Exception as e:
-            print(f"❌ Error enviando email: {str(e)}")
-            print(f"🔐 Token (fallback): {reset_url}")
             return False
 
 # Instancia global

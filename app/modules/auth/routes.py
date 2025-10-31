@@ -58,22 +58,14 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
 
 @router.post("/password-reset")
 def request_password_reset(password_reset: PasswordReset, db: Session = Depends(get_db)):
-    print("🎯 DEBUG: Entrando a /password-reset")
-    print(f"🎯 DEBUG: Email recibido: {password_reset.email}")
-    
     user = db.query(User).filter(User.email == password_reset.email).first()
     
     if user:
-        print(f"🎯 DEBUG: Usuario encontrado: {user.email}")
-        
         import secrets
         
         # ✅ GENERAR DOS TOKENS
         identificator_token = secrets.token_urlsafe(16)  # Corto para URL
         verification_token = secrets.token_urlsafe(32)   # Largo para verificación
-        
-        print(f"🎯 DEBUG: Identificator Token: {identificator_token}")
-        print(f"🎯 DEBUG: Verification Token: {verification_token}")
         
         db_token = PasswordResetToken(
             user_id=user.id,
@@ -83,21 +75,10 @@ def request_password_reset(password_reset: PasswordReset, db: Session = Depends(
         )
         db.add(db_token)
         db.commit()
-        print("🎯 DEBUG: Tokens guardados en BD")
-        
-        # ✅ IMPRIMIR PARA PRUEBAS
-        print("🔐" * 40)
-        print(f"🎯 IDENTIFICATOR TOKEN (URL): {identificator_token}")
-        print(f"🎯 VERIFICATION TOKEN: {verification_token}")
-        print(f"📧 EMAIL: {user.email}")
-        print("🔐" * 40)
         
         # Enviar email con el identificator_token en la URL
         reset_url = f"http://localhost:5173/password-reset?token={identificator_token}"
         email_recuperacion.send_password_reset_email(user.email, reset_url)
-        
-    else:
-        print(f"🎯 DEBUG: Usuario NO encontrado para: {password_reset.email}")
     
     return {"message": "Si el email existe, recibirás un enlace de recuperación"}
 
@@ -128,15 +109,7 @@ def confirm_password_reset(password_reset_confirm: PasswordResetConfirm, db: Ses
 def verify_reset_token(token_data: TokenVerificationRequest, db: Session = Depends(get_db)):
     """Verificar si un identificator_token es válido y obtener el verification_token"""
     
-    print("🎯 DEBUG: Llegó request a /verify")
-    print(f"🎯 DEBUG: token_data recibido: {token_data}")
-    print(f"🎯 DEBUG: token_data.token: {token_data.token}")
-    print(f"🎯 DEBUG: Tipo de token: {type(token_data.token)}")
-
-    #identificator_token = token_data.get("token")
-    
     if not token_data.token:
-        print("❌ DEBUG: Token vacío o None")
         return TokenVerificationResponse(
             valid=False, 
             message="Token no proporcionado"
