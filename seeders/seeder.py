@@ -14,6 +14,7 @@ from sqlalchemy.exc import OperationalError
 from datetime import datetime, date
 from app.database import SessionLocal, engine, Base
 from app.shared.models import User, RoleEnum, Carrera, Ciclo, Matricula, Curso
+from app.shared.config_models import SiteConfig
 from app.modules.auth.security import get_password_hash
 from pathlib import Path
 import pandas as pd
@@ -917,6 +918,34 @@ def import_courses_from_excel(sheet_name: str = "cursos"):
     finally:
         db.close()
 
+def create_site_configs():
+    """Crea las configuraciones básicas del sistema"""
+    db: Session = SessionLocal()
+    
+    try:
+        # Configuración del logo de login
+        login_logo = db.query(SiteConfig).filter(SiteConfig.key == "login_logo").first()
+        if not login_logo:
+            login_logo = SiteConfig(
+                key="login_logo",
+                value="/static/uploads/default-logo.png",
+                description="Logo mostrado en la página de login"
+            )
+            db.add(login_logo)
+            db.commit()
+            db.refresh(login_logo)
+            print("Configuración de logo creada correctamente")
+            return 1, 0
+        else:
+            print("Configuración de logo ya existe")
+            return 0, 1
+    except Exception as e:
+        db.rollback()
+        print(f"Error al crear configuraciones: {str(e)}")
+        return 0, 0
+    finally:
+        db.close()
+
 if __name__ == "__main__":
     try:
         if not check_database_connection():
@@ -930,11 +959,14 @@ if __name__ == "__main__":
         st_created, st_skipped = import_students_from_excel("student")
         dc_created, dc_skipped = import_docentes_from_excel("docentes")
         cr_created, cr_skipped = import_courses_from_excel("cursos")
+        cf_created, cf_skipped = create_site_configs()
+        
         print(f"Ciclos 2025 -> creados: {cc_created}, omitidos: {cc_skipped}")
         print(f"Usuarios de prueba -> creados: {tu_created}, omitidos: {tu_skipped}")
         print(f"Estudiantes (Excel) -> creados: {st_created}, omitidos: {st_skipped}")
         print(f"Docentes (Excel) -> creados: {dc_created}, omitidos: {dc_skipped}")
         print(f"Cursos (Excel) -> creados: {cr_created}, omitidos: {cr_skipped}")
+        print(f"Configuraciones -> creadas: {cf_created}, omitidas: {cf_skipped}")
         print("Éxito: seeder completado.")
     except Exception as e:
         print(str(e))
