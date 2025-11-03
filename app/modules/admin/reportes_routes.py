@@ -73,20 +73,35 @@ async def get_estructura_jerarquica(
                         cursos_pendientes = True
                         break
                 
+                # Calcular estadísticas por estudiante único (no por nota individual)
+                # Agrupar notas por estudiante para calcular promedio ponderado del ciclo
+                estudiantes_promedios = {}
+                
+                for nota in notas_ciclo:
+                    estudiante_id = nota.estudiante_id
+                    promedio_curso = GradeCalculator.calcular_promedio_nota(nota)
+                    
+                    if promedio_curso is not None:
+                        if estudiante_id not in estudiantes_promedios:
+                            estudiantes_promedios[estudiante_id] = []
+                        estudiantes_promedios[estudiante_id].append(float(promedio_curso))
+                
+                # Calcular estadísticas del ciclo basadas en estudiantes únicos
                 aprobados_ciclo = 0
                 desaprobados_ciclo = 0
                 suma_promedios_ciclo = 0
                 total_con_promedio_ciclo = 0
                 
-                for nota in notas_ciclo:
-                    promedio_estudiante = GradeCalculator.calcular_promedio_nota(nota)
-                    if promedio_estudiante is not None:
-                        suma_promedios_ciclo += float(promedio_estudiante)
-                        total_con_promedio_ciclo += 1
-                        if promedio_estudiante >= GradeCalculator.NOTA_MINIMA_APROBACION:
-                            aprobados_ciclo += 1
-                        else:
-                            desaprobados_ciclo += 1
+                for estudiante_id, promedios_cursos in estudiantes_promedios.items():
+                    # Promedio ponderado del estudiante en el ciclo (promedio de sus cursos)
+                    promedio_estudiante_ciclo = sum(promedios_cursos) / len(promedios_cursos)
+                    suma_promedios_ciclo += promedio_estudiante_ciclo
+                    total_con_promedio_ciclo += 1
+                    
+                    if promedio_estudiante_ciclo >= GradeCalculator.NOTA_MINIMA_APROBACION:
+                        aprobados_ciclo += 1
+                    else:
+                        desaprobados_ciclo += 1
                 
                 # Promedio del ciclo basado en cálculos correctos
                 promedio_ciclo = round(suma_promedios_ciclo / total_con_promedio_ciclo, 2) if total_con_promedio_ciclo > 0 else 0
@@ -136,7 +151,7 @@ async def get_estructura_jerarquica(
                     "año": ciclo.año,
                     "fecha_inicio": ciclo.fecha_inicio.isoformat(),
                     "fecha_fin": ciclo.fecha_fin.isoformat(),
-                    "estudiantes_count": estudiantes_count,
+                    "estudiantes_count": len(estudiantes_promedios),  # Usar estudiantes únicos
                     "aprobados": aprobados_ciclo,
                     "desaprobados": desaprobados_ciclo,
                     "promedio": promedio_ciclo,
@@ -441,7 +456,7 @@ async def get_estudiantes_por_ciclo(
                     suma_promedios += promedio_curso
                     total_cursos += 1
                     cursos_detalle.append({
-                        "curso_nombre": nota.curso.nombre,
+                        "nombre": nota.curso.nombre,
                         "promedio": float(promedio_curso),
                         "notas_detalle": {
                             "evaluaciones": [
@@ -471,7 +486,7 @@ async def get_estudiantes_por_ciclo(
                     "dni": estudiante.dni,
                     "nombre_completo": estudiante.full_name,
                     "email": estudiante.email,
-                    "promedio_final": float(promedio_ciclo),
+                    "promedio_ponderado": float(promedio_ciclo),
                     "estado": estado_estudiante,
                     "total_cursos": total_cursos,
                     "cursos_detalle": cursos_detalle,
