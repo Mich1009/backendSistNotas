@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, and_, or_
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from ...database import get_db
 from ..auth.dependencies import get_docente_user
 from ..auth.models import User
-from .models import Curso, Matricula, Nota, HistorialNota
+from .models import Curso, Matricula, Nota, HistorialNota, Ciclo
 from .schemas import DocenteDashboard
 
 # Importar routers de otros módulos
@@ -31,10 +31,16 @@ def get_teacher_dashboard(
 ):
     """Obtener dashboard completo del docente con estadísticas avanzadas"""
     
-    # Obtener cursos del docente
-    cursos = db.query(Curso).filter(
+    # Obtener fecha actual para filtrar ciclos activos
+    fecha_actual = datetime.now(timezone.utc).date()
+    
+    # Obtener cursos del docente que pertenecen a ciclos activos
+    cursos = db.query(Curso).join(Ciclo).filter(
         Curso.docente_id == current_user.id,
-        Curso.is_active == True
+        Curso.is_active == True,
+        Ciclo.is_active == True,
+        Ciclo.fecha_inicio <= fecha_actual,
+        Ciclo.fecha_fin >= fecha_actual
     ).options(
         joinedload(Curso.ciclo)
     ).all()
@@ -99,6 +105,31 @@ def get_teacher_dashboard(
         estudiantes_aprobados_total += aprobados_curso
         estudiantes_desaprobados_total += desaprobados_curso
         
+        # Contar notas por tipo para este curso
+        total_evaluaciones = 0
+        total_practicas = 0
+        total_parciales = 0
+        total_notas_registradas = 0
+        
+        for nota in notas_curso:
+            # Contar evaluaciones (1-8)
+            evaluaciones_count = sum(1 for i in range(1, 9) 
+                                   if getattr(nota, f'evaluacion{i}') is not None and getattr(nota, f'evaluacion{i}') > 0)
+            total_evaluaciones += evaluaciones_count
+            
+            # Contar prácticas (1-4)
+            practicas_count = sum(1 for i in range(1, 5) 
+                                if getattr(nota, f'practica{i}') is not None and getattr(nota, f'practica{i}') > 0)
+            total_practicas += practicas_count
+            
+            # Contar parciales (1-2)
+            parciales_count = sum(1 for i in range(1, 3) 
+                                if getattr(nota, f'parcial{i}') is not None and getattr(nota, f'parcial{i}') > 0)
+            total_parciales += parciales_count
+            
+            # Total de notas registradas para este estudiante
+            total_notas_registradas += evaluaciones_count + practicas_count + parciales_count
+        
         curso_data = {
             "id": curso.id,
             "nombre": curso.nombre,
@@ -112,7 +143,14 @@ def get_teacher_dashboard(
             "promedio_curso": round(promedio_curso, 2) if promedio_curso > 0 else None,
             "estudiantes_aprobados": aprobados_curso,
             "estudiantes_desaprobados": desaprobados_curso,
-            "notas_pendientes": notas_pendientes
+            "notas_pendientes": notas_pendientes,
+            "total_notas_registradas": total_notas_registradas,
+            "total_evaluaciones": total_evaluaciones,
+            "total_practicas": total_practicas,
+            "total_parciales": total_parciales,
+            "max_evaluaciones": estudiantes_count * 8,  # 8 evaluaciones por estudiante
+            "max_practicas": estudiantes_count * 4,     # 4 prácticas por estudiante
+            "max_parciales": estudiantes_count * 2      # 2 parciales por estudiante
         }
         cursos_response.append(curso_data)
     
@@ -127,21 +165,58 @@ def get_teacher_dashboard(
     ciclos_unicos = list(set([curso.ciclo_id for curso in cursos]))
     total_ciclos = len(ciclos_unicos)
     
-    # Actividad reciente - últimas modificaciones de notas
+    # Actividad reciente - últimas 10 notas registradas de todos los cursos del docente
     actividad_reciente = []
-    historial_reciente = db.query(HistorialNota).filter(
-        HistorialNota.fecha_modificacion >= datetime.now() - timedelta(days=7)
-    ).join(Nota).join(Curso).filter(
+    notas_recientes = db.query(Nota, User, Curso).select_from(Nota).join(
+        User, Nota.estudiante_id == User.id
+    ).join(
+        Curso, Nota.curso_id == Curso.id
+    ).filter(
         Curso.docente_id == current_user.id
-    ).order_by(HistorialNota.fecha_modificacion.desc()).limit(5).all()
+    ).order_by(Nota.created_at.desc()).limit(10).all()
     
-    for historial in historial_reciente:
+    for nota, estudiante, curso in notas_recientes:
+        # Obtener las notas individuales que tienen valor
+        notas_registradas = []
+        
+        # Evaluaciones (1-8)
+        for i in range(1, 9):
+            eval_val = getattr(nota, f'evaluacion{i}')
+            if eval_val is not None and float(eval_val) > 0:
+                notas_registradas.append(f"Evaluación {i}: {eval_val}")
+        
+        # Prácticas (1-4)
+        for i in range(1, 5):
+            prac_val = getattr(nota, f'practica{i}')
+            if prac_val is not None and float(prac_val) > 0:
+                notas_registradas.append(f"Práctica {i}: {prac_val}")
+        
+        # Parciales (1-2)
+        for i in range(1, 3):
+            parc_val = getattr(nota, f'parcial{i}')
+            if parc_val is not None and float(parc_val) > 0:
+                notas_registradas.append(f"Parcial {i}: {parc_val}")
+        
+        # Determinar la fecha más relevante (updated_at si existe, sino created_at)
+        fecha_relevante = nota.updated_at if nota.updated_at else nota.created_at
+        
+        # Crear descripción con las notas registradas
+        if notas_registradas:
+            # Mostrar solo las primeras 3 notas para no hacer muy larga la descripción
+            notas_mostrar = notas_registradas[:3]
+            descripcion_notas = ", ".join(notas_mostrar)
+            if len(notas_registradas) > 3:
+                descripcion_notas += f" (+{len(notas_registradas) - 3} más)"
+            descripcion = f"{estudiante.first_name} {estudiante.last_name} - {descripcion_notas}"
+        else:
+            descripcion = f"{estudiante.first_name} {estudiante.last_name} - Sin notas registradas"
+        
         actividad_reciente.append({
-            "id": historial.id,
-            "accion": f"Nota modificada en {historial.nota.curso.nombre}",
-            "descripcion": f"Estudiante ID {historial.estudiante_id}: {historial.nota_anterior} → {historial.nota_nueva}",
-            "fecha": historial.fecha_modificacion.strftime("%Y-%m-%d %H:%M"),
-            "tiempo_relativo": calcular_tiempo_relativo(historial.fecha_modificacion)
+            "id": nota.id,
+            "accion": f"Registro de notas - {curso.nombre}",
+            "descripcion": descripcion,
+            "fecha": fecha_relevante.strftime("%Y-%m-%d %H:%M"),
+            "tiempo_relativo": calcular_tiempo_relativo(fecha_relevante)
         })
     
     # Si no hay historial reciente, agregar actividades simuladas
@@ -181,7 +256,13 @@ def get_teacher_dashboard(
 
 def calcular_tiempo_relativo(fecha):
     """Calcular tiempo relativo desde una fecha"""
-    ahora = datetime.now()
+    # Usar datetime con timezone UTC para comparar con fechas timezone-aware
+    ahora = datetime.now(timezone.utc)
+    
+    # Si la fecha no tiene timezone, asumimos que es UTC
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+    
     diferencia = ahora - fecha
     
     if diferencia.days > 0:
