@@ -1,3 +1,102 @@
+<<<<<<< HEAD
+<mxfile host="app.diagrams.net" modified="2025-10-22T10:00:00.000Z" agent="TraeAI" version="20.6.3" type="device">
+  <diagram id="DBFlow" name="Flujo BD">
+    <mxGraphModel dx="1152" dy="720" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        
+        <!-- Tablas -->
+        <mxCell id="tblUser" value="User\n(id, email, role, carrera_id, docente)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="60" y="80" width="240" height="80" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblCarrera" value="Carrera\n(id, nombre)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="380" y="40" width="200" height="60" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblCiclo" value="Ciclo\n(id, carrera_id, año, paridad)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="640" y="40" width="220" height="60" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblCurso" value="Curso\n(id, ciclo_id, docente_id, nombre, codigo)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="900" y="40" width="260" height="60" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblMatricula" value="Matricula\n(id, estudiante_id, ciclo_id)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="640" y="160" width="220" height="60" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblNota" value="Nota\n(id, estudiante_id, curso_id, p1, p2, p3, ..., promedio)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#cce5ff;strokeColor=#4d79ff;" vertex="1" parent="1">
+          <mxGeometry x="900" y="160" width="260" height="80" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblDescEval" value="DescripcionEvaluacion\n(id, curso_id, nombre, peso)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#ffebcc;strokeColor=#ffa500;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="40" width="240" height="60" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblHistNota" value="HistorialNota\n(id, nota_id, cambiado_por, fecha, cambios)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#f4cccc;strokeColor=#cc0000;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="160" width="240" height="60" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="tblPwdReset" value="PasswordResetToken\n(id, user_id, token, expires_at)" style="shape=rectangle;whiteSpace=wrap;rounded=1;fillColor=#eeeeee;strokeColor=#999999;" vertex="1" parent="1">
+          <mxGeometry x="60" y="200" width="260" height="60" as="geometry"/>
+        </mxCell>
+        
+        <!-- Relaciones -->
+        <mxCell id="relCarreraUser" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblCarrera" target="tblUser">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="380" y="80" as="targetPoint"/>
+            <Array as="points"><mxPoint x="280" y="70"/></Array>
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="relCarreraCiclo" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblCarrera" target="tblCiclo">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relCicloCurso" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblCiclo" target="tblCurso">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relUserCursoDoc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblUser" target="tblCurso">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="300" y="120" as="sourcePoint"/>
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="relUserMatricula" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblUser" target="tblMatricula">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relCicloMatricula" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblCiclo" target="tblMatricula">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relCursoNota" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblCurso" target="tblNota">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relUserNota" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblUser" target="tblNota">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relCursoDescEval" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblCurso" target="tblDescEval">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relNotaHistorial" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblNota" target="tblHistNota">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <mxCell id="relUserPwdReset" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="tblUser" target="tblPwdReset">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+=======
 <mxfile host="65bd71144e">
     <diagram id="XvepXGINqtpvPdyyNCBF" name="Page-1">
         <mxGraphModel dx="2525" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
@@ -108,4 +207,5 @@
             </root>
         </mxGraphModel>
     </diagram>
+>>>>>>> 4bcd54d358bb8bd66b476f76cecf91a12282820f
 </mxfile>
