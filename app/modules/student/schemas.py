@@ -14,7 +14,6 @@ class EstudianteInfo(BaseModel):
 class CursoDashboard(BaseModel):
     id: int
     nombre: str
-    codigo: str
     docente_nombre: str
     ciclo_nombre: str
     creditos: Optional[int] = 3
@@ -23,7 +22,6 @@ class NotaDashboard(BaseModel):
     """Esquema simplificado para el dashboard - USANDO CAMPOS REALES"""
     id: int
     curso_nombre: str
-    curso_codigo: str
     docente_nombre: str
     ciclo_nombre: str
     
@@ -51,11 +49,12 @@ class NotaDashboard(BaseModel):
     fecha_actualizacion: str
 
 class EstadisticasDashboard(BaseModel):
-    total_cursos: int
-    promedio_general: float
-    cursos_aprobados: int
-    cursos_desaprobados: int
-    creditos_completados: int
+    total_cursos_carrera: int
+    promedio_general_carrera: float
+    cursos_aprobados_carrera: int
+    cursos_desaprobados_carrera: int
+    cursos_pendientes_carrera: int
+    creditos_completados_carrera: int
 
 
 # Schemas para Carrera

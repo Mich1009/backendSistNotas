@@ -5,9 +5,10 @@ import os
 import base64
 import uuid
 import shutil
+import glob
 from ...database import get_db
 from ..auth.dependencies import get_admin_user
-from ...shared.config_models import SiteConfig
+from ...shared.models import SiteConfig
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/config", tags=["Admin - Configuración"])
@@ -82,6 +83,13 @@ async def update_logo_config(
     """Actualiza la configuración del logo"""
     config = db.query(SiteConfig).filter(SiteConfig.key == "login_logo").first()
     
+    # Guardar la ruta del logo anterior para eliminarlo después
+    old_logo_path = None
+    if config and config.value and config.value.startswith('/static/uploads/'):
+        # Extraer el nombre del archivo del logo anterior
+        old_filename = config.value.replace('/static/uploads/', '')
+        old_logo_path = os.path.join(UPLOAD_DIR, old_filename)
+    
     # Verificar si es una URL externa o una imagen en base64
     value = config_update.value
     if value.startswith('data:image'):
@@ -120,8 +128,20 @@ async def update_logo_config(
         if config_update.description:
             config.description = config_update.description
     
+    # Guardar los cambios en la base de datos primero
     db.commit()
     db.refresh(config)
+    
+    # Limpiar automáticamente todos los logos antiguos después de guardar el nuevo
+    if value.startswith('/static/uploads/'):
+        try:
+            cleanup_result = cleanup_unused_logo_files(db)
+            if cleanup_result["success"] and cleanup_result["deleted_count"] > 0:
+                print(f"Limpieza automática completada: {cleanup_result['deleted_count']} archivos eliminados")
+        except Exception as e:
+            print(f"Error durante la limpieza automática de logos: {str(e)}")
+            # No lanzar excepción aquí para no afectar la operación principal
+    
     return config
 
 @router.get("/", response_model=List[ConfigResponse])
@@ -132,3 +152,80 @@ async def get_all_configs(
     """Obtiene todas las configuraciones del sistema"""
     configs = db.query(SiteConfig).all()
     return configs
+
+def cleanup_unused_logo_files(db: Session) -> dict:
+    """
+    Limpia archivos de logo no utilizados del directorio de uploads
+    Retorna un diccionario con estadísticas de la limpieza
+    """
+    try:
+        # Obtener la configuración actual del logo
+        config = db.query(SiteConfig).filter(SiteConfig.key == "login_logo").first()
+        current_logo_file = None
+        
+        if config and config.value and config.value.startswith('/static/uploads/'):
+            current_logo_file = config.value.replace('/static/uploads/', '')
+        
+        # Buscar todos los archivos de logo en el directorio
+        logo_pattern = os.path.join(UPLOAD_DIR, "logo_*")
+        all_logo_files = glob.glob(logo_pattern)
+        
+        deleted_files = []
+        errors = []
+        
+        for file_path in all_logo_files:
+            filename = os.path.basename(file_path)
+            
+            # Si no es el logo actual, eliminarlo
+            if filename != current_logo_file:
+                try:
+                    os.remove(file_path)
+                    deleted_files.append(filename)
+                    print(f"Archivo de logo no utilizado eliminado: {filename}")
+                except Exception as e:
+                    error_msg = f"Error al eliminar {filename}: {str(e)}"
+                    errors.append(error_msg)
+                    print(error_msg)
+        
+        return {
+            "success": True,
+            "current_logo": current_logo_file,
+            "deleted_files": deleted_files,
+            "deleted_count": len(deleted_files),
+            "errors": errors,
+            "message": f"Limpieza completada. {len(deleted_files)} archivos eliminados."
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Error durante la limpieza de archivos"
+        }
+
+@router.post("/logo/cleanup")
+async def cleanup_logo_files(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_admin_user)
+):
+    """
+    Endpoint para limpiar archivos de logo no utilizados
+    Solo accesible por administradores
+    """
+    result = cleanup_unused_logo_files(db)
+    
+    if result["success"]:
+        return {
+            "message": result["message"],
+            "details": {
+                "current_logo": result["current_logo"],
+                "deleted_files": result["deleted_files"],
+                "deleted_count": result["deleted_count"],
+                "errors": result["errors"]
+            }
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result["message"]
+        )

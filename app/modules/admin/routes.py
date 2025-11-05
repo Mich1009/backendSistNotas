@@ -8,7 +8,7 @@ from ...database import get_db
 from ..auth.dependencies import get_admin_user
 from ...shared.models import User, RoleEnum, Carrera, Ciclo, Curso, Matricula, Nota
 from .schemas import AdminDashboard, EstadisticasGenerales, ReporteUsuarios
-from ...shared.grade_utils import calcular_promedio_nota, contar_notas_por_rango
+from ...shared.grade_calculator import GradeCalculator
 
 # Importar las rutas específicas
 from .docentes_routes import router as docentes_router
@@ -157,17 +157,17 @@ def get_grade_distribution(
         todas_notas = db.query(Nota).all()
         promedios_validos = []
         for nota in todas_notas:
-            promedio = calcular_promedio_nota(nota)
+            promedio = GradeCalculator.calcular_promedio_nota(nota)
             if promedio is not None:
-                promedios_validos.append(promedio)
+                promedios_validos.append(float(promedio))
         
         # Distribución de notas por rangos
         total_notas = len(promedios_validos)
         
-        excelente = contar_notas_por_rango(db, 18)
-        bueno = contar_notas_por_rango(db, 14, 18)
-        regular = contar_notas_por_rango(db, 11, 14)
-        deficiente = contar_notas_por_rango(db, 0, 11)
+        excelente = GradeCalculator.contar_notas_por_rango(db, 18)
+        bueno = GradeCalculator.contar_notas_por_rango(db, 14, 18)
+        regular = GradeCalculator.contar_notas_por_rango(db, 11, 14)
+        deficiente = GradeCalculator.contar_notas_por_rango(db, 0, 11)
         
         distribucion_notas = [
             {"categoria": "Excelente (18-20)", "cantidad": excelente},

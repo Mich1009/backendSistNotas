@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 from datetime import datetime, date
 from app.database import SessionLocal, engine, Base
 from app.shared.models import User, RoleEnum, Carrera, Ciclo, Matricula, Curso
-from app.shared.config_models import SiteConfig
+from app.shared.models import SiteConfig
 from app.modules.auth.security import get_password_hash
 from pathlib import Path
 import pandas as pd

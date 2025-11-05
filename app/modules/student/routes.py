@@ -184,10 +184,12 @@ def get_student_dashboard(
             "dni": current_user.dni
         }
 
-        # Obtener ciclo activo
-        ciclo_actual = db.query(Ciclo).filter(
-            Ciclo.is_active == True
-        ).first()
+        # Obtener la última matrícula del estudiante para determinar el ciclo actual
+        latest_matricula = db.query(Matricula).join(Ciclo).filter(
+            Matricula.estudiante_id == current_user.id
+        ).order_by(Ciclo.numero.desc()).first()
+
+        ciclo_actual = latest_matricula.ciclo if latest_matricula else None
 
         if not ciclo_actual:
             return {
@@ -203,20 +205,37 @@ def get_student_dashboard(
                 }
             }
 
-        # Cursos actuales - VERSIÓN CORRECTA
-        cursos_actuales = db.query(Curso).filter(
+        # Cursos actuales basados en el ciclo de la última matrícula
+        cursos_actuales = db.query(Curso).options(joinedload(Curso.docente)).filter(
             Curso.ciclo_id == ciclo_actual.id
         ).all()
 
         cursos_formateados = []
+        calculator = GradeCalculator()
         for curso in cursos_actuales:
+            # Obtener la nota del estudiante para el curso actual
+            nota = db.query(Nota).filter(
+                Nota.estudiante_id == current_user.id,
+                Nota.curso_id == curso.id
+            ).first()
+
+            promedio_curso = None
+            if nota:
+                try:
+                    # Usar el calculador para obtener el promedio
+                    promedio_curso = calculator.calcular_promedio_final(nota)
+                except Exception:
+                    promedio_curso = None
+            
+            # Se mantienen los campos del schema original para evitar errores de validación,
+            # y se agrega el promedio. El frontend deberá ser ajustado para mostrarlo.
             cursos_formateados.append({
                 "id": curso.id,
                 "nombre": curso.nombre,
-                "codigo": f"CUR-{curso.id}",
                 "docente_nombre": f"{curso.docente.first_name} {curso.docente.last_name}" if curso.docente else "Sin asignar",
                 "ciclo_nombre": ciclo_actual.nombre,
-                "creditos": 3
+                "creditos": 3,  # Asumiendo un valor por defecto
+                "promedio_final": float(promedio_curso) if promedio_curso is not None else None
             })
 
         # Notas recientes - VERSIÓN CORREGIDA (SIN JOIN PROBLEMÁTICO)
@@ -231,7 +250,6 @@ def get_student_dashboard(
             notas_formateadas.append({
                 "id": nota.id,
                 "curso_nombre": nota.curso.nombre,
-                "curso_codigo": f"CUR-{nota.curso.id}",
                 "docente_nombre": f"{nota.curso.docente.first_name} {nota.curso.docente.last_name}" if nota.curso.docente else "Sin asignar",
                 "ciclo_nombre": ciclo_actual.nombre,
                 
@@ -259,14 +277,29 @@ def get_student_dashboard(
                 "fecha_actualizacion": nota.updated_at.isoformat() if nota.updated_at else nota.created_at.isoformat()
             })
 
-        # CALCULAR ESTADÍSTICAS - ESTO FALTABA
-        total_cursos = len(cursos_actuales)
+        # CALCULAR ESTADÍSTICAS DE TODOS LOS CICLOS (APROBADOS Y DESAPROBADOS A LO LARGO DE TODA LA CARRERA)
+        # Obtener todas las matrículas activas del estudiante
+        matriculas_activas = db.query(Matricula).filter(
+            Matricula.estudiante_id == current_user.id,
+            Matricula.is_active == True
+        ).all()
         
-        # Calcular promedios y cursos aprobados
-        promedios_por_curso = []
-        cursos_aprobados = 0
+        # Obtener cursos de todos los ciclos en los que está matriculado
+        ciclo_ids = [matricula.ciclo_id for matricula in matriculas_activas]
         
-        for curso in cursos_actuales:
+        cursos_todos_ciclos = []
+        if ciclo_ids:
+            cursos_todos_ciclos = db.query(Curso).filter(
+                Curso.ciclo_id.in_(ciclo_ids)
+            ).all()
+        
+        # Calcular estadísticas de todos los ciclos usando GradeCalculator
+        cursos_aprobados_todos_ciclos = 0
+        cursos_desaprobados_todos_ciclos = 0
+        cursos_pendientes_todos_ciclos = 0
+        promedios_todos_ciclos = []
+        
+        for curso in cursos_todos_ciclos:
             # Obtener notas del curso
             notas_curso = db.query(Nota).filter(
                 Nota.estudiante_id == current_user.id,
@@ -274,41 +307,43 @@ def get_student_dashboard(
             ).all()
             
             if notas_curso:
-                # Calcular promedio del curso
-                todas_notas_curso = []
+                # Usar GradeCalculator para calcular el promedio con los pesos correctos
+                promedio_calculado = None
                 for nota in notas_curso:
-                    campos = [
-                        'evaluacion1', 'evaluacion2', 'evaluacion3', 'evaluacion4',
-                        'evaluacion5', 'evaluacion6', 'evaluacion7', 'evaluacion8',
-                        'practica1', 'practica2', 'practica3', 'practica4',
-                        'parcial1', 'parcial2'
-                    ]
-                    
-                    for campo in campos:
-                        valor = getattr(nota, campo)
-                        if valor is not None:
-                            todas_notas_curso.append(float(valor))
+                    try:
+                        promedio_calculado = GradeCalculator.calcular_promedio_nota(nota)
+                        if promedio_calculado is not None:
+                            break
+                    except Exception:
+                        continue
                 
-                if todas_notas_curso:
-                    promedio_curso = sum(todas_notas_curso) / len(todas_notas_curso)
-                    promedios_por_curso.append(promedio_curso)
+                if promedio_calculado is not None:
+                    promedio_float = float(promedio_calculado)
+                    promedios_todos_ciclos.append(promedio_float)
                     
-                    if promedio_curso >= 13.0:
-                        cursos_aprobados += 1
-
-        # Calcular promedio general
-        promedio_general = round(sum(promedios_por_curso) / len(promedios_por_curso), 2) if promedios_por_curso else 0
+                    if promedio_float >= 13.0:
+                        cursos_aprobados_todos_ciclos += 1
+                    else:
+                        cursos_desaprobados_todos_ciclos += 1
+                else:
+                    cursos_pendientes_todos_ciclos += 1
+            else:
+                cursos_pendientes_todos_ciclos += 1
         
-        # Calcular créditos
-        creditos_completados = cursos_aprobados * 3
+        # Calcular promedio general de todos los ciclos
+        promedio_general_todos_ciclos = round(sum(promedios_todos_ciclos) / len(promedios_todos_ciclos), 2) if promedios_todos_ciclos else 0
+        
+        # Calcular créditos completados de todos los ciclos
+        creditos_completados_todos_ciclos = cursos_aprobados_todos_ciclos * 3
 
-        # DEFINIR LAS ESTADÍSTICAS - ESTO FALTABA
+        # DEFINIR LAS ESTADÍSTICAS (SOLO DE TODA LA CARRERA)
         estadisticas = {
-            "total_cursos": total_cursos,
-            "promedio_general": promedio_general,
-            "cursos_aprobados": cursos_aprobados,
-            "cursos_desaprobados": total_cursos - cursos_aprobados,
-            "creditos_completados": creditos_completados
+            "total_cursos_carrera": len(cursos_todos_ciclos),
+            "promedio_general_carrera": promedio_general_todos_ciclos,
+            "cursos_aprobados_carrera": cursos_aprobados_todos_ciclos,
+            "cursos_desaprobados_carrera": cursos_desaprobados_todos_ciclos,
+            "cursos_pendientes_carrera": cursos_pendientes_todos_ciclos,
+            "creditos_completados_carrera": creditos_completados_todos_ciclos
         }
 
         return {
