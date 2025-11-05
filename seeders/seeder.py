@@ -20,6 +20,36 @@ from pathlib import Path
 import pandas as pd
 import re
 
+def read_excel_with_encoding(file_path, sheet_name=None):
+    """Lee archivo Excel probando diferentes codificaciones"""
+    #encodings = ['latin-1', 'cp1252', 'iso-8859-1', 'utf-8']
+    
+    print(f"🔍 Leyendo archivo: {file_path.name} con hoja: {sheet_name}")
+    engines = ['openpyxl', 'xlrd']
+    
+    for engine in engines:
+        try:
+            print(f"   Probando engine: {engine}")
+            if sheet_name:
+                df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, engine=engine)
+            else:
+                df = pd.read_excel(file_path, header=None, engine=engine)
+            print(f"   ✅ Éxito con engine: {engine}")
+            return df
+        except Exception as e:
+            print(f"   ❌ Falló con {engine}: {str(e)[:80]}...")
+            continue
+    
+    # Último intento sin engine específico
+    try:
+        print("   🔄 Intentando sin engine específico...")
+        if sheet_name:
+            return pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+        else:
+            return pd.read_excel(file_path, header=None)
+    except Exception as e:
+        raise Exception(f"❌ No se pudo leer el archivo {file_path}: {e}")
+            
 def check_database_connection():
     """Verifica si se puede conectar a la base de datos"""
     try:
@@ -272,11 +302,7 @@ def import_docentes_from_excel(sheet_name: str = "docentes"):
             xls = None
 
         # Leer sin encabezado para detectar la fila de encabezados real
-        try:
-            df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
-        except ValueError:
-            df_raw = pd.read_excel(file_path, header=None)
-            print("[Importación docentes] Hoja 'docentes' no encontrada, se usó la primera hoja.")
+        df_raw = read_excel_with_encoding(file_path, sheet_name)
 
         # Normalizar encabezados (minúsculas, sin acentos)
         def _normalize_col(col: str) -> str:
@@ -458,11 +484,7 @@ def import_students_from_excel(sheet_name: str = "student"):
             xls = None
 
         # Leer sin encabezado para detectar la fila de encabezados real
-        try:
-            df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
-        except ValueError:
-            df_raw = pd.read_excel(file_path, header=None)
-            print("[Importación estudiantes] Hoja 'student' no encontrada, se usó la primera hoja.")
+        df_raw = read_excel_with_encoding(file_path, sheet_name)
 
         # Normalizar encabezados (minúsculas, sin acentos)
         def _normalize_col(col: str) -> str:
@@ -743,11 +765,7 @@ def import_courses_from_excel(sheet_name: str = "cursos"):
             xls = None
 
         # Leer sin encabezado para detectar la fila de encabezados real
-        try:
-            df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
-        except ValueError:
-            df_raw = pd.read_excel(file_path, header=None)
-            print("[Importación cursos] Hoja 'cursos' no encontrada, se usó la primera hoja.")
+        df_raw = read_excel_with_encoding(file_path, sheet_name)
 
         # Normalizar encabezados (minúsculas, sin acentos)
         def _normalize_col(col: str) -> str:
@@ -948,17 +966,33 @@ def create_site_configs():
 
 if __name__ == "__main__":
     try:
+        print("🔍 Paso 1: Verificando conexión a la base de datos...")
         if not check_database_connection():
             raise Exception("Error: no se puede conectar a la base de datos.")
+        
+        print("🔍 Paso 2: Creando estructura de la base de datos...")
         if not create_database_structure():
             raise Exception("Error: no se pudo crear la estructura de la base de datos.")
 
+        print("🔍 Paso 3: Creando carrera Desarrollo de Software...")
         create_carrera_desarrollo_software()
+        
+        print("🔍 Paso 4: Creando ciclos 2023-2025...")
         cc_created, cc_skipped = create_ciclos_2023_2025()
+        
+        print("🔍 Paso 5: Creando usuarios de prueba...")
         tu_created, tu_skipped = create_test_users()
+        
+        print("🔍 Paso 6: Importando estudiantes desde Excel...")
         st_created, st_skipped = import_students_from_excel("student")
+        
+        print("🔍 Paso 7: Importando docentes desde Excel...")
         dc_created, dc_skipped = import_docentes_from_excel("docentes")
+        
+        print("🔍 Paso 8: Importando cursos desde Excel...")
         cr_created, cr_skipped = import_courses_from_excel("cursos")
+        
+        print("🔍 Paso 9: Creando configuraciones del sitio...")
         cf_created, cf_skipped = create_site_configs()
         
         print(f"Ciclos 2025 -> creados: {cc_created}, omitidos: {cc_skipped}")
@@ -969,4 +1003,6 @@ if __name__ == "__main__":
         print(f"Configuraciones -> creadas: {cf_created}, omitidas: {cf_skipped}")
         print("Éxito: seeder completado.")
     except Exception as e:
-        print(str(e))
+        print(f"❌ Error encontrado: {str(e)}")
+        import traceback
+        traceback.print_exc()
