@@ -7,8 +7,9 @@ from datetime import datetime
 from ...database import get_db
 from ..auth.dependencies import get_admin_user
 from ..auth.security import get_password_hash
-from ...shared.models import User, RoleEnum, Matricula, Nota, Ciclo, Curso, Carrera
-from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse
+from ...shared.models import User, RoleEnum, Matricula, Nota, Ciclo, Curso, Carrera, DescripcionEvaluacion
+from ...shared.grade_calculator import GradeCalculator
+from .schemas import UserCreate, UserUpdate, UserResponse, UserListResponse, DescripcionEvaluacionResponse
 
 router = APIRouter(prefix="/estudiantes", tags=["Admin - Estudiantes"])
 
@@ -286,6 +287,16 @@ def search_estudiante_by_dni(
             detail="No se encontró ningún estudiante con ese DNI"
         )
     
+    # Obtener el ciclo actual (matrícula con el ciclo más alto)
+    matricula_actual = db.query(Matricula).options(
+        joinedload(Matricula.ciclo)
+    ).filter(
+        Matricula.estudiante_id == estudiante.id,
+        Matricula.is_active == True
+    ).order_by(Matricula.ciclo_id.desc()).first()
+    
+    ciclo_actual = matricula_actual.ciclo if matricula_actual else None
+    
     return {
         "id": estudiante.id,
         "dni": estudiante.dni,
@@ -299,5 +310,202 @@ def search_estudiante_by_dni(
         "telefono_apoderado": estudiante.telefono_apoderado,
         "carrera": {
             "nombre": estudiante.carrera.nombre
-        } if estudiante.carrera else None
+        } if estudiante.carrera else None,
+        "ciclo_actual": {
+            "id": ciclo_actual.id,
+            "nombre": ciclo_actual.nombre,
+            "numero": ciclo_actual.numero
+        } if ciclo_actual else None
     }
+
+@router.get("/{dni}/academic-performance")
+def get_academic_performance_by_dni(
+    dni: str,
+    db: Session = Depends(get_db)
+):
+    """Obtener el rendimiento académico detallado de un estudiante por DNI"""
+    
+    # Validar formato de DNI
+    if not dni or len(dni) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DNI debe tener al menos 8 dígitos"
+        )
+    
+    # Buscar estudiante por DNI con información de carrera
+    estudiante = db.query(User).options(
+        joinedload(User.carrera)
+    ).filter(
+        User.dni == dni,
+        User.role == RoleEnum.ESTUDIANTE,
+        User.is_active == True
+    ).first()
+    
+    if not estudiante:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró ningún estudiante con ese DNI"
+        )
+    
+    # Obtener todas las matrículas del estudiante con información del ciclo
+    matriculas = db.query(Matricula).options(
+        joinedload(Matricula.ciclo)
+    ).filter(
+        Matricula.estudiante_id == estudiante.id,
+        Matricula.is_active == True
+    ).all()
+    
+    if not matriculas:
+        return []
+    
+    performance_data = []
+    calculator = GradeCalculator()
+    
+    for matricula in matriculas:
+        # Obtener todos los cursos del ciclo con información del docente
+        cursos_ciclo = db.query(Curso).options(
+            joinedload(Curso.docente)
+        ).filter(
+            Curso.ciclo_id == matricula.ciclo_id,
+            Curso.is_active == True
+        ).all()
+        
+        # Obtener las notas del estudiante para los cursos de este ciclo
+        notas_ciclo = db.query(Nota).options(
+            joinedload(Nota.curso)
+        ).filter(
+            Nota.estudiante_id == estudiante.id,
+            Nota.curso_id.in_([curso.id for curso in cursos_ciclo]) if cursos_ciclo else []
+        ).all()
+        
+        # Crear diccionario de notas por curso
+        notas_por_curso = {nota.curso_id: nota for nota in notas_ciclo}
+        
+        # Procesar cada curso del ciclo
+        cursos_rendimiento = []
+        
+        for curso in cursos_ciclo:
+            nota = notas_por_curso.get(curso.id)
+            
+            if nota:
+                # Calcular promedio final
+                try:
+                    promedio_final = calculator.calcular_promedio_nota(nota)
+                except Exception as e:
+                    promedio_final = None
+                
+                # Preparar evaluaciones
+                evaluaciones = {}
+                for i in range(1, 9):
+                    eval_val = getattr(nota, f'evaluacion{i}')
+                    evaluaciones[f'evaluacion{i}'] = float(eval_val) if eval_val is not None else None
+                
+                # Preparar prácticas
+                practicas = {}
+                for i in range(1, 5):
+                    prac_val = getattr(nota, f'practica{i}')
+                    practicas[f'practica{i}'] = float(prac_val) if prac_val is not None else None
+                
+                # Preparar parciales
+                parciales = {}
+                for i in range(1, 3):
+                    parc_val = getattr(nota, f'parcial{i}')
+                    parciales[f'parcial{i}'] = float(parc_val) if parc_val is not None else None
+                
+                # Determinar estado basado en las notas completadas
+                if promedio_final and float(promedio_final) >= 13.0:
+                    estado = "Aprobado"
+                elif promedio_final and float(promedio_final) < 13.0:
+                    estado = "Desaprobado"
+                else:
+                    # Verificar si tiene algunas notas (en curso) o ninguna (pendiente)
+                    tiene_notas = any([
+                        any(evaluaciones.values()),
+                        any(practicas.values()),
+                        any(parciales.values())
+                    ])
+                    estado = "En curso" if tiene_notas else "Pendiente"
+            
+            else:
+                # Curso sin notas
+                promedio_final = None
+                evaluaciones = {f'evaluacion{i}': None for i in range(1, 9)}
+                practicas = {f'practica{i}': None for i in range(1, 5)}
+                parciales = {f'parcial{i}': None for i in range(1, 3)}
+                estado = "Pendiente"
+            
+            curso_rendimiento = {
+                "curso_id": curso.id,
+                "curso_nombre": curso.nombre,
+                "promedio_final": float(promedio_final) if promedio_final else None,
+                "estado": estado,
+                "evaluaciones": evaluaciones,
+                "practicas": practicas,
+                "parciales": parciales
+            }
+            
+            cursos_rendimiento.append(curso_rendimiento)
+        
+        # Calcular estadísticas del ciclo
+        numero_cursos = len(cursos_rendimiento)
+        
+        # Calcular promedio del ciclo (solo cursos con promedio final)
+        promedios_validos = [curso["promedio_final"] for curso in cursos_rendimiento if curso["promedio_final"] is not None]
+        promedio_ciclo = sum(promedios_validos) / len(promedios_validos) if promedios_validos else None
+        
+        # Crear el objeto de datos de rendimiento del ciclo
+        ciclo_data = {
+            "ciclo_id": matricula.ciclo.id,
+            "ciclo_nombre": matricula.ciclo.nombre,
+            "ciclo_numero": matricula.ciclo.numero,
+            "numero_cursos": numero_cursos,
+            "promedio_ciclo": round(promedio_ciclo, 2) if promedio_ciclo else None,
+            "ciclo_info": {
+                "id": matricula.ciclo.id,
+                "nombre": matricula.ciclo.nombre,
+                "numero": matricula.ciclo.numero
+            },
+            "cursos": cursos_rendimiento
+        }
+        
+        performance_data.append(ciclo_data)
+    
+    # Ordenar por número de ciclo
+    performance_data.sort(key=lambda x: x["ciclo_info"]["numero"])
+    
+    return {
+        "estudiante": {
+            "id": estudiante.id,
+            "dni": estudiante.dni,
+            "first_name": estudiante.first_name,
+            "last_name": estudiante.last_name,
+            "email": estudiante.email,
+            "carrera": estudiante.carrera.nombre if estudiante.carrera else None
+        },
+        "academic_performance": performance_data
+    }
+    
+    
+# ==================== DESCRIPCIONES DE EVALUACIÓN ====================
+
+@router.get("/nota/{curso_id}/evaluation-descriptions", response_model=List[DescripcionEvaluacionResponse])
+def get_evaluation_descriptions(
+    curso_id: int,
+    db: Session = Depends(get_db)
+):
+    """Obtener todas las descripciones de evaluación de un curso"""
+    
+    # Verificar que el curso existe
+    curso = db.query(Curso).filter(Curso.id == curso_id).first()
+    if not curso:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Curso no encontrado"
+        )
+    
+    # Obtener todas las descripciones de evaluación del curso
+    descripciones = db.query(DescripcionEvaluacion).filter(
+        DescripcionEvaluacion.curso_id == curso_id
+    ).all()
+    
+    return descripciones

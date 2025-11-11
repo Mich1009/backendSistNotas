@@ -336,3 +336,16 @@ class DocenteCursosResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+# Schema para descripciones de evaluación
+class DescripcionEvaluacionResponse(BaseModel):
+    id: int
+    curso_id: int
+    tipo_evaluacion: str
+    descripcion: str
+    fecha_evaluacion: datetime
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
