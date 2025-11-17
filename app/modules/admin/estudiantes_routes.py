@@ -41,7 +41,8 @@ def get_estudiantes(
     search: Optional[str] = Query(None),
     ciclo_nombre: Optional[str] = Query(None, description="Filtrar por nombre de ciclo (I, II, III, IV, V, VI)"),
     estado_matricula: Optional[str] = Query(None, regex="^(matriculados|sin_matricular|todos)$", description="Filtrar por estado de matrícula: 'matriculados', 'sin_matricular', 'todos'"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener lista de estudiantes activos, mostrando su ciclo más alto si están matriculados"""
     
@@ -136,7 +137,8 @@ def get_estudiantes(
 @router.post("/", response_model=UserResponse)
 def create_estudiante(
     estudiante_data: UserCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Crear un nuevo estudiante"""
     
@@ -196,7 +198,8 @@ def create_estudiante(
 def update_estudiante(
     estudiante_id: int,
     estudiante_data: UserUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Actualizar un estudiante existente"""
     
@@ -237,7 +240,8 @@ def update_estudiante(
 @router.delete("/{estudiante_id}")
 def delete_estudiante(
     estudiante_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Eliminar completamente un estudiante (hard delete)"""
     
@@ -261,7 +265,8 @@ def delete_estudiante(
 @router.get("/search/dni/{dni}")
 def search_estudiante_by_dni(
     dni: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Buscar estudiante por DNI para matrícula"""
     
@@ -321,7 +326,8 @@ def search_estudiante_by_dni(
 @router.get("/{dni}/academic-performance")
 def get_academic_performance_by_dni(
     dni: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener el rendimiento académico detallado de un estudiante por DNI"""
     
@@ -491,7 +497,8 @@ def get_academic_performance_by_dni(
 @router.get("/nota/{curso_id}/evaluation-descriptions", response_model=List[DescripcionEvaluacionResponse])
 def get_evaluation_descriptions(
     curso_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener todas las descripciones de evaluación de un curso"""
     

@@ -20,7 +20,8 @@ router = APIRouter(prefix="/cursos-ciclos", tags=["Admin - Cursos y Ciclos"])
 @router.get("/ciclos", response_model=List[CicloResponse])
 def get_ciclos(
     is_active: Optional[bool] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener lista de ciclos"""
     
@@ -65,7 +66,8 @@ def get_ciclos(
 @router.post("/ciclos", response_model=CicloResponse)
 def create_ciclo(
     ciclo_data: CicloCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Crear un nuevo ciclo"""
     
@@ -100,7 +102,8 @@ def create_ciclo(
 def update_ciclo(
     ciclo_id: int,
     ciclo_data: CicloUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Actualizar un ciclo existente"""
     
@@ -129,7 +132,8 @@ def update_ciclo(
 @router.delete("/ciclos/{ciclo_id}")
 def delete_ciclo(
     ciclo_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Eliminar definitivamente un ciclo"""
     
@@ -176,7 +180,8 @@ def get_cursos(
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(1000, ge=1, le=1000),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener lista de cursos con paginación y filtros"""
     
@@ -245,7 +250,8 @@ def get_cursos(
 @router.post("/cursos", response_model=CursoResponse)
 def create_curso(
     curso_data: CursoCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Crear un nuevo curso"""
     
@@ -274,7 +280,8 @@ def create_curso(
 def update_curso(
     curso_id: int,
     curso_data: CursoUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Actualizar un curso existente"""
     
@@ -312,7 +319,8 @@ def update_curso(
 @router.delete("/cursos/{curso_id}")
 def delete_curso(
     curso_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Eliminar definitivamente un curso"""
     

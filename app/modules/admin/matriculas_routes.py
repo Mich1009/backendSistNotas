@@ -125,7 +125,7 @@ def get_matriculas(
     estado: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_admin_user)
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener todas las matrículas con filtros"""
     
