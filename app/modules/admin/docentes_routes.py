@@ -21,7 +21,8 @@ async def get_docentes(
     search: Optional[str] = Query(None, description="Buscar por nombre, apellido o email"),
     especialidad: Optional[str] = Query(None, description="Filtrar por especialidad"),
     is_active: Optional[bool] = Query(None, description="Filtrar por estado activo"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener lista de docentes con filtros y paginación"""
     
@@ -54,7 +55,8 @@ async def get_docentes(
 @router.get("/{docente_id}", response_model=UserResponse)
 async def get_docente(
     docente_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Obtener un docente específico por ID"""
     
@@ -74,7 +76,8 @@ async def get_docente(
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_docente(
     docente_data: UserCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Crear un nuevo docente"""
     
@@ -123,7 +126,8 @@ async def create_docente(
 async def update_docente(
     docente_id: int,
     docente_data: UserUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Actualizar un docente existente"""
     
@@ -164,7 +168,8 @@ async def update_docente(
 @router.delete("/{docente_id}")
 def delete_docente(
     docente_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Eliminar definitivamente un docente"""
     
@@ -254,7 +259,8 @@ async def get_docente_cursos(
 async def assign_curso_to_docente(
     docente_id: int,
     assignment: CursoAssignment,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user)
 ):
     """Asignar un curso a un docente"""
     

@@ -311,12 +311,21 @@ async def get_estudiantes_por_curso(
         notas = db.query(Nota).options(
             joinedload(Nota.estudiante)
         ).filter(Nota.curso_id == curso_id).all()
+
+        # Ordenar por apellidos y nombres del estudiante
+        notas_ordenadas = sorted(
+            notas,
+            key=lambda n: (
+                (n.estudiante.last_name or '').strip().lower(),
+                (n.estudiante.first_name or '').strip().lower()
+            )
+        )
         
         estudiantes_data = []
         aprobados = []
         desaprobados = []
         
-        for nota in notas:
+        for nota in notas_ordenadas:
             estudiante = nota.estudiante
             promedio_final = GradeCalculator.calcular_promedio_nota(nota)
             
@@ -327,7 +336,9 @@ async def get_estudiantes_por_curso(
                 estudiante_info = {
                     "id": estudiante.id,
                     "dni": estudiante.dni,
-                    "nombre_completo": estudiante.full_name,
+                    "nombre_completo": f"{estudiante.last_name} {estudiante.first_name}",
+                    "nombres": estudiante.first_name,
+                    "apellidos": estudiante.last_name,
                     "email": estudiante.email,
                     "promedio_final": float(promedio_final),
                     "estado": estado_estudiante,
@@ -437,12 +448,21 @@ async def get_estudiantes_por_ciclo(
             Matricula.ciclo_id == ciclo_id,
             Matricula.estado == "activa"
         ).options(joinedload(Matricula.estudiante)).all()
+
+        # Ordenar por apellidos y nombres del estudiante
+        matriculas_ordenadas = sorted(
+            matriculas,
+            key=lambda m: (
+                (m.estudiante.last_name or '').strip().lower(),
+                (m.estudiante.first_name or '').strip().lower()
+            )
+        )
         
         estudiantes_data = []
         aprobados = []
         desaprobados = []
         
-        for matricula in matriculas:
+        for matricula in matriculas_ordenadas:
             estudiante = matricula.estudiante
             
             # Obtener todas las notas del estudiante en los cursos de este ciclo
@@ -493,7 +513,9 @@ async def get_estudiantes_por_ciclo(
                 estudiante_info = {
                     "id": estudiante.id,
                     "dni": estudiante.dni,
-                    "nombre_completo": estudiante.full_name,
+                    "nombre_completo": f"{estudiante.last_name} {estudiante.first_name}",
+                    "nombres": estudiante.first_name,
+                    "apellidos": estudiante.last_name,
                     "email": estudiante.email,
                     "promedio_ponderado": float(promedio_ciclo),
                     "estado": estado_estudiante,
